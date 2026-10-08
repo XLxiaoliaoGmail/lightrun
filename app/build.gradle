@@ -1,0 +1,36 @@
+plugins { id 'com.android.application' }
+def keys = new Properties()
+def keyFile = rootProject.file('signing.properties')
+if (keyFile.exists()) keyFile.withInputStream { keys.load(it) }
+android {
+    namespace 'cn.lightrun.app'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'cn.lightrun.app'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '1.0.0'
+        testInstrumentationRunner 'cn.lightrun.app.RunInstrumentation'
+    }
+    signingConfigs {
+        release {
+            if (keyFile.exists()) {
+                storeFile file(keys['storeFile'])
+                storePassword keys['storePassword']
+                keyAlias keys['keyAlias']
+                keyPassword keys['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            if (keyFile.exists()) signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    lint { abortOnError true; checkReleaseBuilds true }
+}
