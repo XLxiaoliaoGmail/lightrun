@@ -4,6 +4,16 @@
 
 无需账号、没有广告、不联网、不依赖 Google 服务。运动数据保存在手机本地。
 
+## 界面预览
+
+以下截图来自 v1.0.0 发布版在 Android 模拟器中的实际界面，仅展示应用内容区域。运动记录和轨迹均为模拟数据，不包含用户的真实位置或运动历史。
+
+| 首页 · 一键开跑 | 跑步中 · 实时轨迹 |
+| :---: | :---: |
+| <img src="docs/screenshots/home.png" width="270" alt="轻跑首页：运动时长、距离、配速和开跑按钮"> | <img src="docs/screenshots/running.png" width="270" alt="跑步中：定位状态、运动数据、暂停和保存按钮及离线轨迹"> |
+| **历史记录** | **轨迹详情 · GPX 导出** |
+| <img src="docs/screenshots/history.png" width="270" alt="历史记录列表：每次跑步的日期、距离、时长和配速"> | <img src="docs/screenshots/detail.png" width="270" alt="轨迹详情：运动数据、离线轨迹、GPX 导出和删除按钮"> |
+
 ## 功能
 
 - 开跑、暂停、继续、结束保存
