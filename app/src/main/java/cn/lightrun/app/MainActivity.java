@@ -107,7 +107,7 @@ public final class MainActivity extends Activity {
         gap(16);addRoute(null);
         gap(14);TextView foot=text("离线记录 · 无广告 · 数据只存本机",12,MUTED,false);foot.setGravity(Gravity.CENTER);content.addView(foot);
         gap(6);TextView help=text("使用与隐私说明",12,GREEN,false);help.setGravity(Gravity.CENTER);help.setPadding(0,dp(12),0,dp(12));help.setOnClickListener(v->help());content.addView(help);refresh();
-        updateLink=text("设置与更新 · v1.1.0",13,GREEN,true);updateLink.setGravity(Gravity.CENTER);updateLink.setPadding(0,dp(12),0,dp(12));updateLink.setOnClickListener(v->showSettings());content.addView(updateLink);refresh();
+        updateLink=text("设置与更新 · v1.1.1",13,GREEN,true);updateLink.setGravity(Gravity.CENTER);updateLink.setPadding(0,dp(12),0,dp(12));updateLink.setOnClickListener(v->showSettings());content.addView(updateLink);refresh();
     }
     private void refresh() {
         if(page.equals("settings")) {
@@ -125,7 +125,7 @@ public final class MainActivity extends Activity {
         subtitle.setText(s!=null&&s.active?"专注脚下，剩下的交给轻跑。":"打开，即刻出发。");
         steps.setText("本次步数 · "+(s!=null&&s.stepsRecorded?String.format(Locale.CHINA,"%,d 步",s.steps):"—")
                 +(s!=null&&service!=null&&!"正在计步".equals(service.stepStatus)?"\n"+service.stepStatus:""));
-        if(updateLink!=null){UpdateInfo update=UpdateChecker.cached(this);updateLink.setText(update!=null&&update.code>UpdateChecker.installedCode(this)?"发现新版本 "+update.version+" · 查看更新":"设置与更新 · v1.1.0");}
+        if(updateLink!=null){UpdateInfo update=UpdateChecker.cached(this);updateLink.setText(update!=null&&update.code>UpdateChecker.installedCode(this)?"发现新版本 "+update.version+" · 查看更新":"设置与更新 · v1.1.1");}
     }
     private void requestStart() {
         if(service==null)return;
@@ -223,7 +223,7 @@ public final class MainActivity extends Activity {
             UpdateChecker.check(this,true,(info,message)->{if(isFinishing()||isDestroyed())return;refresh();if(!visible||running())return;if(info!=null&&info.code>UpdateChecker.installedCode(this))showUpdate(info);else toast(message);});refresh();
         });
         gap(12);download=button("查看新版与下载入口",false);content.addView(download);download.setOnClickListener(v->{UpdateInfo info=UpdateChecker.cached(this);if(info!=null)showUpdate(info);});
-        gap(20);content.addView(text("当前版本 1.1.0 · Android 8.0 及以上",13,MUTED,false));
+        gap(20);content.addView(text("当前版本 1.1.1 · Android 8.0 及以上",13,MUTED,false));
         gap(12);Button permission=button("身体活动权限设置",false);content.addView(permission);permission.setOnClickListener(v->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));refresh();
     }
     private void showUpdate(UpdateInfo info) {

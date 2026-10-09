@@ -35,7 +35,7 @@ public final class UpdateChecker {
             String status;UpdateInfo best=null;
             try {
                 Future<String> gitee=pool.submit(()->fetch("https://gitee.com/api/v5/repos/XLxiaoliao/lightrun/contents/update.json?ref=main"));
-                Future<String> github=pool.submit(()->fetch("https://api.github.com/repos/XLxiaoliaoGmail/lightrun/contents/update.json?ref=main"));
+                Future<String> github=pool.submit(()->fetch("https://raw.githubusercontent.com/XLxiaoliaoGmail/lightrun/main/update.json"));
                 String g=read(gitee),h=read(github);UpdateInfo gi=parse(g),hi=parse(h);
                 best=UpdateInfo.newest(gi,hi);
                 if(best==null)status=gi!=null&&hi!=null?"两个更新源的校验信息不一致，请稍后重试":"暂时无法连接更新源，跑步功能不受影响";
@@ -63,7 +63,9 @@ public final class UpdateChecker {
             try(InputStream input=connection.getInputStream();ByteArrayOutputStream bytes=new ByteArrayOutputStream()) {
                 byte[] buffer=new byte[4096];int count;
                 while((count=input.read(buffer))!=-1){if(bytes.size()+count>65536)throw new IOException("Oversized response");bytes.write(buffer,0,count);}
-                JSONObject wrapper=new JSONObject(bytes.toString(StandardCharsets.UTF_8.name()));
+                String text=bytes.toString(StandardCharsets.UTF_8.name());
+                if(address.startsWith("https://raw.githubusercontent.com/"))return text;
+                JSONObject wrapper=new JSONObject(text);
                 if(!"base64".equals(wrapper.getString("encoding")))throw new IOException("Invalid content encoding");
                 return new String(Base64.decode(wrapper.getString("content"),Base64.DEFAULT),StandardCharsets.UTF_8);
             }
