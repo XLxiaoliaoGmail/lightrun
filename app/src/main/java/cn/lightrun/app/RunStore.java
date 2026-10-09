@@ -41,9 +41,10 @@ public final class RunStore {
     private static JSONObject encode(RunSession s, long now) throws IOException {
         try {
             JSONObject j = new JSONObject();
-            j.put("version",1).put("id",s.id).put("startedAt",s.startedAt).put("endedAt",s.endedAt)
+            j.put("version",2).put("id",s.id).put("startedAt",s.startedAt).put("endedAt",s.endedAt)
                     .put("durationMs",s.duration(now)).put("distanceM",s.distanceM).put("active",s.active)
-                    .put("interrupted",s.interrupted).put("segment",s.segment);
+                    .put("interrupted",s.interrupted).put("segment",s.segment)
+                    .put("steps",s.steps).put("stepsRecorded",s.stepsRecorded).put("announcedKilometer",s.announcedKilometer);
             JSONArray points = new JSONArray();
             for (RunSession.Point p:s.points) points.put(new JSONArray().put(p.lat).put(p.lon).put(p.time).put(p.accuracy).put(p.segment));
             j.put("points",points); return j;
@@ -58,6 +59,8 @@ public final class RunStore {
             s.id=j.getString("id"); s.endedAt=j.getLong("endedAt"); s.accumulatedMs=j.getLong("durationMs");
             s.distanceM=j.getDouble("distanceM"); s.active=j.getBoolean("active");
             s.interrupted=j.optBoolean("interrupted"); s.segment=j.optInt("segment");
+            s.steps=Math.max(0,j.optLong("steps"));s.stepsRecorded=j.optBoolean("stepsRecorded");
+            s.announcedKilometer=Math.max((int)(s.distanceM/1000),j.optInt("announcedKilometer"));
             JSONArray points=j.getJSONArray("points");
             for(int i=0;i<points.length();i++) { JSONArray p=points.getJSONArray(i); s.points.add(new RunSession.Point(p.getDouble(0),p.getDouble(1),p.getLong(2),(float)p.getDouble(3),p.getInt(4))); }
             return s;

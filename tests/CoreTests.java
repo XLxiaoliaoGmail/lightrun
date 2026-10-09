@@ -1,6 +1,5 @@
 package cn.lightrun.app;
 
-/** All coordinates are synthetic test fixtures, not recorded personal locations. */
 public final class CoreTests {
     private static int checks;
     private static void check(boolean condition,String message) { checks++;if(!condition)throw new AssertionError(message); }
@@ -33,6 +32,33 @@ public final class CoreTests {
         check(Format.distance(1234).equals("1.23"),"distance format");
         check(Format.pace(1000,300000).equals("5′00″"),"pace units");
         check(Format.pace(5,300000).equals("—"),"short distance pace unavailable");
+        StepAccumulator steps=new StepAccumulator();steps.start(1000000000L);
+        check(steps.detector(999999999L)==0,"pre-start detector event excluded");
+        check(steps.detector(1100000000L)==1,"detected step counted");
+        check(steps.detector(1100000000L)==0,"duplicate detector event ignored");
+        steps.stop();check(steps.detector(1200000000L)==0,"paused step excluded");
+        steps.start(2000000000L);check(steps.detector(1500000000L)==0,"delayed pause event excluded on resume");
+        check(steps.detector(2100000000L)==1,"resume step counted");
+        steps.start(3000000000L);check(steps.counter(500,3000000000L)==0,"counter initial cumulative baseline excluded");
+        check(steps.counter(505,4000000000L)==5,"counter difference counted");
+        check(steps.counter(999,3500000000L)==0,"stale counter cannot poison baseline");
+        check(steps.counter(507,5000000000L)==2,"counter after stale event");
+        check(steps.counter(2,6000000000L)==0,"sensor reset rebaselines without negative steps");
+        check(steps.counter(4,7000000000L)==2,"steps after reset");
+        check(steps.counter(Float.NaN,8000000000L)==0,"invalid counter value");
+        check(steps.counter(-1,8000000000L)==0,"negative counter value");
+        check(steps.counter(10004,8000000000L)==0,"impossible counter jump rejected");
+        steps.stop();steps.start(9000000000L);check(steps.counter(10020,9000000000L)==0,"resume baseline excludes pause walking");
+        check(steps.counter(10022,10000000000L)==2,"counter resume difference");
+        RunSession milestones=new RunSession(0);milestones.resume(0);milestones.distanceM=999.99;
+        check(milestones.takeKilometerMilestone()==0,"no premature kilometer");
+        milestones.distanceM=1000;check(milestones.takeKilometerMilestone()==1,"first kilometer");
+        check(milestones.takeKilometerMilestone()==0,"no duplicate announcement");
+        milestones.pause(10);milestones.distanceM=2000;check(milestones.takeKilometerMilestone()==0,"no paused announcement");
+        milestones.resume(20);check(milestones.takeKilometerMilestone()==2,"resume next kilometer");
+        milestones.distanceM=3100;check(milestones.takeKilometerMilestone()==3,"later milestone");
+        milestones.distanceM=5000;check(milestones.takeKilometerMilestone()==5,"large increment announces only latest");
+        milestones.distanceM=Double.NaN;check(milestones.takeKilometerMilestone()==0,"invalid milestone distance");
         System.out.println("PASS: "+checks+" core assertions");
     }
 }

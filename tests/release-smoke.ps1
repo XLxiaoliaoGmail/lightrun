@@ -19,9 +19,12 @@ function Tap([string]$Text,[string]$Id='') {
     DeviceCommand @('shell','input','tap',"$([int](($numbers[0]+$numbers[2])/2))","$([int](($numbers[1]+$numbers[3])/2))")
 }
 function Expect([string]$Text) {
-    $xml=UI
-    if(-not($xml.SelectNodes('//node') | Where-Object {$_.text.Contains($Text)})){throw "Expected UI text: $Text"}
-    $script:checks++
+    for($attempt=0;$attempt -lt 4;$attempt++) {
+        $xml=UI
+        if($xml.SelectNodes('//node') | Where-Object {$_.text.Contains($Text)}){$script:checks++;return}
+        Start-Sleep -Milliseconds 500
+    }
+    throw "Expected UI text: $Text"
 }
 DeviceCommand @('shell','pm','clear','cn.lightrun.app')
 DeviceCommand @('shell','am','start','-W','-n','cn.lightrun.app/.MainActivity')
@@ -40,6 +43,7 @@ DeviceCommand @('shell','pm','grant','cn.lightrun.app','android.permission.ACCES
 DeviceCommand @('shell','pm','grant','cn.lightrun.app','android.permission.ACCESS_COARSE_LOCATION')
 DeviceCommand @('shell','settings','put','secure','location_mode','0')
 Tap '开跑'
+Tap '' 'com.android.permissioncontroller:id/permission_deny_button'
 Tap '' 'com.android.permissioncontroller:id/permission_deny_button'
 Expect '开启手机定位'
 Tap '取消'

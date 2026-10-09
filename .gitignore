@@ -12,3 +12,6 @@ signing.properties
 *.log
 *.gpx
 .idea/
+credentials/
+key.txt
+*-token.txt

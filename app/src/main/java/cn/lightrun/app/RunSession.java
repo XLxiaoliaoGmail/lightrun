@@ -18,6 +18,9 @@ public final class RunSession {
     public String id = UUID.randomUUID().toString();
     public long startedAt, endedAt, accumulatedMs, activeSince;
     public double distanceM;
+    public long steps;
+    public boolean stepsRecorded;
+    public int announcedKilometer;
     public boolean active, interrupted;
     public int segment;
     public final List<Point> points = new ArrayList<>();
@@ -28,6 +31,12 @@ public final class RunSession {
     }
     public long duration(long now) { return accumulatedMs + (active ? Math.max(0, now - activeSince) : 0); }
     public void pause(long now) { accumulatedMs = duration(now); active = false; newSegment = true; }
+    public int takeKilometerMilestone() {
+        if(!active||!Double.isFinite(distanceM)||distanceM<0)return 0;
+        int kilometer=(int)(distanceM/1000);
+        if(kilometer<=announcedKilometer)return 0;
+        announcedKilometer=kilometer;return kilometer;
+    }
     public boolean add(double lat, double lon, float accuracy, long wallTime, long fixAgeMs) {
         if (!active || !Double.isFinite(lat) || !Double.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180
                 || !Float.isFinite(accuracy) || accuracy <= 0 || accuracy > 40 || fixAgeMs < 0 || fixAgeMs > 10000) return false;
