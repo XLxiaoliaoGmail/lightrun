@@ -110,21 +110,51 @@ public final class RunInstrumentation extends Instrumentation {
     }
     private void speechTests() throws Exception {
         String original=android.provider.Settings.Secure.getString(getTargetContext().getContentResolver(),"tts_default_synth");
+        String originalLocale=android.provider.Settings.Secure.getString(getTargetContext().getContentResolver(),"tts_default_locale");
         shell("settings put secure tts_default_synth cn.lightrun.app.test");
-        CountDownLatch synthesized=new CountDownLatch(1);String[] received={"",""};
-        BroadcastReceiver receiver=new BroadcastReceiver(){public void onReceive(Context c,Intent i){received[0]=i.getStringExtra("voice");received[1]=i.getStringExtra("text");synthesized.countDown();}};
+        shell("settings put secure tts_default_locale cn.lightrun.app.test:zh_CN");
+        try {
+            speechCase("modern",false,"test-zh-offline",false);
+            speechCase("alias",false,"test-zh-offline",false);
+            speechCase("legacy",false,"test-zh-offline",true);
+            speechCase("lazy",false,"test-zh-offline",false);
+            speechCase("reject",false,"test-zh-offline",false);
+            speechCase("unknown",false,null,false);
+            speechCase("unknown",true,"test-zh-offline",false);
+            speechCase("cloud",false,null,false);
+            speechCase("cloud",true,"test-zh-online",false);
+            speechCase("missing",false,null,false);
+            speechCase("missing",true,"test-zh-offline",false);
+        } finally {
+            UpdateChecker.preferences(getTargetContext()).edit().remove("systemVoice").apply();
+            shell("settings delete global lightrun_test_tts_mode");
+            shell(original==null?"settings delete secure tts_default_synth":"settings put secure tts_default_synth "+original);
+            shell(originalLocale==null?"settings delete secure tts_default_locale":"settings put secure tts_default_locale "+originalLocale);
+        }
+    }
+    private void speechCase(String mode,boolean compatibility,String expectedVoice,boolean embedded) throws Exception {
+        shell("settings put global lightrun_test_tts_mode "+mode);
+        UpdateChecker.preferences(getTargetContext()).edit().putBoolean("systemVoice",compatibility).apply();
+        CountDownLatch synthesized=new CountDownLatch(1);String[] received={"",""};boolean[] local={false};
+        BroadcastReceiver receiver=new BroadcastReceiver(){public void onReceive(Context c,Intent i){received[0]=i.getStringExtra("voice");received[1]=i.getStringExtra("text");local[0]=i.getBooleanExtra("embedded",false);synthesized.countDown();}};
         if(Build.VERSION.SDK_INT>=33)getTargetContext().registerReceiver(receiver,new IntentFilter("cn.lightrun.TEST_SYNTHESIZE"),Context.RECEIVER_EXPORTED);
         else getTargetContext().registerReceiver(receiver,new IntentFilter("cn.lightrun.TEST_SYNTHESIZE"));
         VoiceCoach[] coach={null};
         try {
             runOnMainSync(()->{coach[0]=new VoiceCoach(getTargetContext());coach[0].speak(VoiceCoach.kilometer(1,1000,360000));});
-            check(synthesized.await(12,TimeUnit.SECONDS),"Android TTS synthesis completes: "+coach[0].status);
-            check("test-zh-offline".equals(received[0]),"TTS chooses offline voice even when online voice has higher quality");
-            check(received[1].contains("已跑1公里"),"kilometer text delivered to Android TTS service");
+            if(expectedVoice==null){
+                for(int i=0;i<80;i++){Thread.sleep(100);waitForIdleSync();if(!coach[0].status.startsWith("正在检查"))break;}
+                check(coach[0].status.startsWith("无法识别"),mode+": unknown/online/uninstalled metadata is not misreported as uninstalled");
+                check(!synthesized.await(700,TimeUnit.MILLISECONDS),mode+": offline mode does not silently synthesize with an unverified voice");
+            } else {
+                check(synthesized.await(12,TimeUnit.SECONDS),mode+": Android TTS synthesis completes: "+coach[0].status);
+                check(expectedVoice.equals(received[0]),mode+": selected expected voice");
+                check(received[1].contains("已跑1公里")&&local[0]==embedded,mode+": Chinese text and embedded flag delivered");
+                check(coach[0].status.contains(compatibility?"由系统引擎决定":"离线中文语音已就绪"),mode+": accurate readiness label");
+            }
         } finally {
             runOnMainSync(()->{if(coach[0]!=null)coach[0].close();});
             getTargetContext().unregisterReceiver(receiver);
-            shell(original==null?"settings delete secure tts_default_synth":"settings put secure tts_default_synth "+original);
         }
     }
     private void invalid(String json,String label){try{UpdateInfo.parse(json);check(false,label);}catch(Exception expected){check(true,label);}}

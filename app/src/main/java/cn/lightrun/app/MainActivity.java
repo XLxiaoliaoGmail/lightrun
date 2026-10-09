@@ -53,7 +53,7 @@ public final class MainActivity extends Activity {
         bound=bindService(new Intent(this,TrackingService.class),connection,BIND_AUTO_CREATE);
     }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putBoolean("pendingStart",pendingStart);state.putString("page",page);if(detail!=null)state.putString("detailId",detail.id);if(export!=null)state.putString("exportId",export.id); }
-    @Override protected void onResume() { super.onResume(); visible=true; handler.removeCallbacks(pulse); handler.post(pulse);UpdateJobService.schedule(this);handler.postDelayed(()->{if(visible)UpdateChecker.check(this,false,(info,message)->refresh());},1000); }
+    @Override protected void onResume() { super.onResume(); visible=true;if(page.equals("settings")&&service!=null&&!running())service.resetVoice();handler.removeCallbacks(pulse); handler.post(pulse);UpdateJobService.schedule(this);handler.postDelayed(()->{if(visible)UpdateChecker.check(this,false,(info,message)->refresh());},1000); }
     @Override protected void onPause() { visible=false; handler.removeCallbacks(pulse); super.onPause(); }
     @Override protected void onDestroy() { if(bound)unbindService(connection); super.onDestroy(); }
     private int dp(float value) { return Math.round(value*getResources().getDisplayMetrics().density); }
@@ -107,7 +107,7 @@ public final class MainActivity extends Activity {
         gap(16);addRoute(null);
         gap(14);TextView foot=text("离线记录 · 无广告 · 数据只存本机",12,MUTED,false);foot.setGravity(Gravity.CENTER);content.addView(foot);
         gap(6);TextView help=text("使用与隐私说明",12,GREEN,false);help.setGravity(Gravity.CENTER);help.setPadding(0,dp(12),0,dp(12));help.setOnClickListener(v->help());content.addView(help);refresh();
-        updateLink=text("设置与更新 · v1.1.1",13,GREEN,true);updateLink.setGravity(Gravity.CENTER);updateLink.setPadding(0,dp(12),0,dp(12));updateLink.setOnClickListener(v->showSettings());content.addView(updateLink);refresh();
+        updateLink=text("设置与更新 · v1.1.2",13,GREEN,true);updateLink.setGravity(Gravity.CENTER);updateLink.setPadding(0,dp(12),0,dp(12));updateLink.setOnClickListener(v->showSettings());content.addView(updateLink);refresh();
     }
     private void refresh() {
         if(page.equals("settings")) {
@@ -125,7 +125,7 @@ public final class MainActivity extends Activity {
         subtitle.setText(s!=null&&s.active?"专注脚下，剩下的交给轻跑。":"打开，即刻出发。");
         steps.setText("本次步数 · "+(s!=null&&s.stepsRecorded?String.format(Locale.CHINA,"%,d 步",s.steps):"—")
                 +(s!=null&&service!=null&&!"正在计步".equals(service.stepStatus)?"\n"+service.stepStatus:""));
-        if(updateLink!=null){UpdateInfo update=UpdateChecker.cached(this);updateLink.setText(update!=null&&update.code>UpdateChecker.installedCode(this)?"发现新版本 "+update.version+" · 查看更新":"设置与更新 · v1.1.1");}
+        if(updateLink!=null){UpdateInfo update=UpdateChecker.cached(this);updateLink.setText(update!=null&&update.code>UpdateChecker.installedCode(this)?"发现新版本 "+update.version+" · 查看更新":"设置与更新 · v1.1.2");}
     }
     private void requestStart() {
         if(service==null)return;
@@ -201,7 +201,7 @@ public final class MainActivity extends Activity {
     }
     private void help() {
         new AlertDialog.Builder(this).setTitle("轻跑 · 简单地跑")
-                .setMessage("1. 在室外开启手机定位，授予精确位置权限后点开跑。首次定位可能需要几十秒。\n\n2. 锁屏后会继续记录。OPPO 等手机请在应用电池设置中允许后台活动；不要强行停止应用。\n\n3. 暂停期间不计时、不计距离、不累计步数。定位间断超过 30 秒会分段。距离是 GPS 估算值，弱信号可能少记。\n\n4. 步数来自手机传感器，需要身体活动权限；无传感器时仍可记录轨迹。传感器延迟、暂停或中断可能少记步数。旧记录不会凭距离补算步数。\n\n5. 整公里播报使用系统离线中文语音，没有语音包时请在系统语音设置安装；可在设置中关闭播报。\n\n6. 轨迹图不含街道底图。运动记录和步数只存本机，不收集账号、不上传轨迹。只有检查更新会连接 Gitee 和 GitHub；网站会收到普通网络请求（包括 IP），不发送位置或设备标识。下载入口交给浏览器处理，不自动安装。\n\n7. 异常中断后恢复为暂停，通常最多丢失约 5 秒未保存数据。覆盖更新保留记录；卸载会删除，重要记录请先导出 GPX。")
+                .setMessage("1. 在室外开启手机定位，授予精确位置权限后点开跑。首次定位可能需要几十秒。\n\n2. 锁屏后会继续记录。OPPO 等手机请在应用电池设置中允许后台活动；不要强行停止应用。\n\n3. 暂停期间不计时、不计距离、不累计步数。定位间断超过 30 秒会分段。距离是 GPS 估算值，弱信号可能少记。\n\n4. 步数来自手机传感器，需要身体活动权限；无传感器时仍可记录轨迹。传感器延迟、暂停或中断可能少记步数。旧记录不会凭距离补算步数。\n\n5. 整公里播报默认使用已识别的离线中文音色。若系统试听正常而应用识别失败，可开启系统音色兼容模式，是否联网由系统引擎决定，建议断网试听。可在设置中关闭播报。\n\n6. 轨迹图不含街道底图。运动记录和步数只存本机，不收集账号、不上传轨迹。检查更新会连接 Gitee 和 GitHub；网站会收到普通网络请求（包括 IP），不发送位置或设备标识。主动开启语音兼容模式后，系统语音引擎可能联网处理播报文字（公里、用时、配速），请以系统引擎设置为准。下载入口交给浏览器处理，不自动安装。\n\n7. 异常中断后恢复为暂停，通常最多丢失约 5 秒未保存数据。覆盖更新保留记录；卸载会删除，重要记录请先导出 GPX。")
                 .setPositiveButton("知道了",null).show();
     }
     private boolean running(){return service!=null&&service.session!=null&&service.session.active;}
@@ -211,7 +211,10 @@ public final class MainActivity extends Activity {
         Switch voice=new Switch(this);voice.setText("整公里语音播报");voice.setTextColor(GREEN);voice.setTextSize(17);voice.setChecked(prefs.getBoolean("voice",true));content.addView(voice);
         voice.setOnCheckedChangeListener((b,enabled)->{prefs.edit().putBoolean("voice",enabled).apply();if(service!=null)service.voiceSettingsChanged(enabled);});
         gap(12);voiceStatus=text("",13,MUTED,false);content.addView(voiceStatus);gap(12);
-        Button preview=button("试听离线中文语音",false);content.addView(preview);preview.setOnClickListener(v->{if(running()){toast("请暂停后试听语音");return;}if(service!=null){service.previewVoice();handler.postDelayed(this::refresh,500);}});
+        Button preview=button("试听中文语音",false);content.addView(preview);preview.setOnClickListener(v->{if(running()){toast("请暂停后试听语音");return;}if(service!=null){service.previewVoice();handler.postDelayed(this::refresh,500);}});
+        gap(12);Switch systemVoice=new Switch(this);systemVoice.setText("使用系统音色（兼容模式）");systemVoice.setTextColor(GREEN);systemVoice.setTextSize(16);systemVoice.setChecked(prefs.getBoolean("systemVoice",false));content.addView(systemVoice);
+        systemVoice.setOnCheckedChangeListener((b,enabled)->{if(running()){toast("请暂停后切换音色模式");systemVoice.setOnCheckedChangeListener(null);systemVoice.setChecked(!enabled);showSettings();return;}prefs.edit().putBoolean("systemVoice",enabled).apply();if(service!=null)service.resetVoice();refresh();});
+        gap(8);content.addView(text("系统能试听、轻跑识别失败时可开启。兼容模式是否联网由系统引擎决定，建议先关闭 Wi-Fi 和移动数据试听。关闭此项仅使用已识别的离线中文音色。",12,MUTED,false));
         gap(12);Button speech=button("系统语音设置",false);content.addView(speech);speech.setOnClickListener(v->{try{startActivity(new Intent("com.android.settings.TTS_SETTINGS"));}catch(ActivityNotFoundException e){try{startActivity(new Intent(Settings.ACTION_SETTINGS));}catch(ActivityNotFoundException ignored){toast("请打开手机设置，搜索文字转语音");}}});
         gap(20);Switch automatic=new Switch(this);automatic.setText("自动检查更新");automatic.setTextColor(GREEN);automatic.setTextSize(17);automatic.setChecked(prefs.getBoolean("autoUpdate",true));content.addView(automatic);
         automatic.setOnCheckedChangeListener((b,enabled)->{prefs.edit().putBoolean("autoUpdate",enabled).apply();UpdateJobService.schedule(this);if(enabled&&!running())UpdateChecker.check(this,false,(info,message)->refresh());});
@@ -223,7 +226,7 @@ public final class MainActivity extends Activity {
             UpdateChecker.check(this,true,(info,message)->{if(isFinishing()||isDestroyed())return;refresh();if(!visible||running())return;if(info!=null&&info.code>UpdateChecker.installedCode(this))showUpdate(info);else toast(message);});refresh();
         });
         gap(12);download=button("查看新版与下载入口",false);content.addView(download);download.setOnClickListener(v->{UpdateInfo info=UpdateChecker.cached(this);if(info!=null)showUpdate(info);});
-        gap(20);content.addView(text("当前版本 1.1.1 · Android 8.0 及以上",13,MUTED,false));
+        gap(20);content.addView(text("当前版本 1.1.2 · Android 8.0 及以上",13,MUTED,false));
         gap(12);Button permission=button("身体活动权限设置",false);content.addView(permission);permission.setOnClickListener(v->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));refresh();
     }
     private void showUpdate(UpdateInfo info) {

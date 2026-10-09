@@ -140,6 +140,7 @@ public final class TrackingService extends Service implements LocationListener, 
     public String voiceStatus(){return voice.status;}
     public void previewVoice(){voice.speak("轻跑语音播报。已跑一公里，用时六分钟，平均配速六分钟每公里。");}
     public void stopVoice(){voice.stop();}
+    public void resetVoice(){voice.close();voice=new VoiceCoach(this);if(settings.getBoolean("voice",true))voice.prepare();}
     public void voiceSettingsChanged(boolean enabled) {
         if(!enabled){voice.stop();return;}
         if(foreground&&session!=null&&session.active&&Build.VERSION.SDK_INT>=29) {
