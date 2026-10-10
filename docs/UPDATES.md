@@ -1,24 +1,17 @@
 # 更新发布
 
-轻跑从 Gitee 的公开 Contents API 和 GitHub 的公开原始文件读取仓库根目录的 `update.json`。GitHub 原始文件不消耗 REST API 的匿名额度。不使用账号令牌，不下载或安装 APK。后台检查采用 Android JobScheduler，应用启动时调度；每日最多一次自动尝试，系统可能延后。手动检查不受每日间隔限制。
+v1.2.0 客户端只使用 Gitee，不请求 GitHub。源码和发布包仍可以镜像到 GitHub。用户界面仅显示版本、说明、下载进度及安装操作，不显示来源。
 
-两个更新源分别请求，一个失败时仍可使用另一个。版本以递增的 `versionCode` 比较，相同版本优先使用 Gitee；同一版本代码的 APK 校验值冲突时拒绝采纳本次结果。元数据只允许本项目的 HTTPS 发布页地址。
+自动检查采用 JobScheduler，并由进入应用时的到期检查补充；每 24 小时最多自动尝试一次，失败也记入间隔，手动检查不受此限。系统可能延后后台任务。检查不上传运动数据、不带访问令牌，不自动下载或安装。
 
-元数据格式：
+更新元数据在仓库根目录 update.json，通过公开 Contents API 读取 Base64 包装。schema 1 包含 applicationId、versionCode、versionName、notes、sha256、giteeUrl；发布文件继续保留 githubUrl 兼容旧客户端，新客户端忽略它。旧二进制的网络行为需覆盖升级后才能改变。
 
-```json
-{
-  "schema": 1,
-  "applicationId": "cn.lightrun.app",
-  "versionCode": 3,
-  "versionName": "1.1.1",
-  "notes": "版本更新说明",
-  "sha256": "正式签名 APK 的 64 位小写 SHA-256",
-  "giteeUrl": "https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.1.1",
-  "githubUrl": "https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.1.1"
-}
-```
+用户选择下载后，应用查询对应版本 Release 和唯一 APK 附件，通过附件 GET 接口下载。HTTPS 重定向只允许 gitee.com / foruda.gitee.com，不打开浏览器。下载显示真实字节进度，支持取消、重开进度与失败重试。
 
-发布顺序：提高 App 版本代码与版本名，构建并测试同一签名 APK，审查源码和产物，将标签推送到两个仓库，在两个发布页上传同一 APK 和校验文件，最后更新两个仓库的主分支元数据。不要发布用于测试的虚构高版本号。
+文件先写私有 cache 中的 update.part。严格验证字节数、SHA-256、包名、版本、minSdk 和当前签名证书后，改名为 update.apk。取消或失败删除文件。进程结束后需要重新下载，当前不支持断点续传或签名密钥轮换。
 
-元数据中的校验值用于校验镜像一致性和用户手动核验。轻跑不自行下载 APK，因此不会宣称已校验用户浏览器下载的文件；Android 安装器会检查覆盖安装时的签名匹配。维护者的发布凭据及签名私钥必须保存在仓库之外。
+安装通过只读私有 ContentProvider 和 APK content URI 交给系统安装器。首次可能需要本应用的安装授权；最终安装由用户确认，不申请静默安装权限。下载和安装避开正在进行的跑步记录。
+
+发布顺序：完成同一签名的构建与测试、隐私审查，推版本标签，上传实际 APK / 源码 ZIP / 校验文件；匿名下载并验证后，最后推主分支元数据。不要发布虚假高版本号或尚不可下载的更新。发布凭据及签名私钥须在仓库外。
+
+完整协议、实现文件、迁移清单及验证场景见 [Android 应用更新实现与复用指南](ANDROID-APP-UPDATES.md)。

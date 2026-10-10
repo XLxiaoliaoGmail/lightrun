@@ -4,7 +4,9 @@ import android.app.*;
 import android.content.*;
 import android.location.*;
 import android.os.*;
-import android.widget.Button;
+import android.view.*;
+import android.widget.*;
+import android.net.Uri;
 import java.io.*;
 import java.lang.reflect.Field;
 import java.util.*;
@@ -39,8 +41,10 @@ public final class RunInstrumentation extends Instrumentation {
         Context context=getTargetContext();
         UpdateChecker.preferences(context).edit().putBoolean("autoUpdate",false).putBoolean("voice",false).apply();
         updateTests();
+        downloadTests(context);
         Intent intent=new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         activity=(MainActivity)startActivitySync(intent);waitForIdleSync();
+        homeTests();
         speechTests();
         CountDownLatch bound=new CountDownLatch(1);
         connection=new ServiceConnection(){public void onServiceConnected(ComponentName n,IBinder b){service=((TrackingService.LocalBinder)b).service();bound.countDown();}public void onServiceDisconnected(ComponentName n){}};
@@ -49,7 +53,7 @@ public final class RunInstrumentation extends Instrumentation {
         runOnMainSync(()->service.discard());
         List<String> permissions=Arrays.asList(context.getPackageManager().getPackageInfo(context.getPackageName(),android.content.pm.PackageManager.GET_PERMISSIONS).requestedPermissions);
         check(permissions.contains("android.permission.INTERNET")&&permissions.contains("android.permission.ACTIVITY_RECOGNITION"),"update and step permissions declared");
-        check(!permissions.contains("android.permission.REQUEST_INSTALL_PACKAGES")&&!permissions.contains("android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"),"no install or silent update permission");
+        check(permissions.contains("android.permission.REQUEST_INSTALL_PACKAGES")&&!permissions.contains("android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"),"user-confirmed installation only");
         locations=(LocationManager)context.getSystemService(Context.LOCATION_SERVICE);
         locations.addTestProvider(LocationManager.GPS_PROVIDER,false,false,false,false,true,true,true,3,1);
         locations.setTestProviderEnabled(LocationManager.GPS_PROVIDER,true);
@@ -114,17 +118,8 @@ public final class RunInstrumentation extends Instrumentation {
         shell("settings put secure tts_default_synth cn.lightrun.app.test");
         shell("settings put secure tts_default_locale cn.lightrun.app.test:zh_CN");
         try {
-            speechCase("modern",false,"test-zh-offline",false);
-            speechCase("alias",false,"test-zh-offline",false);
-            speechCase("legacy",false,"test-zh-offline",true);
-            speechCase("lazy",false,"test-zh-offline",false);
-            speechCase("reject",false,"test-zh-offline",false);
-            speechCase("unknown",false,null,false);
-            speechCase("unknown",true,"test-zh-offline",false);
-            speechCase("cloud",false,null,false);
-            speechCase("cloud",true,"test-zh-online",false);
-            speechCase("missing",false,null,false);
-            speechCase("missing",true,"test-zh-offline",false);
+            for(String mode:new String[]{"modern","alias","legacy","lazy","unknown","missing"})speechCase(mode,"test-zh-offline");
+            speechCase("cloud","test-zh-online");
         } finally {
             UpdateChecker.preferences(getTargetContext()).edit().remove("systemVoice").apply();
             shell("settings delete global lightrun_test_tts_mode");
@@ -132,9 +127,10 @@ public final class RunInstrumentation extends Instrumentation {
             shell(originalLocale==null?"settings delete secure tts_default_locale":"settings put secure tts_default_locale "+originalLocale);
         }
     }
-    private void speechCase(String mode,boolean compatibility,String expectedVoice,boolean embedded) throws Exception {
+    private void speechCase(String mode,String expectedVoice) throws Exception {
         shell("settings put global lightrun_test_tts_mode "+mode);
-        UpdateChecker.preferences(getTargetContext()).edit().putBoolean("systemVoice",compatibility).apply();
+        // An old disabled compatibility preference must not disable the system preset.
+        UpdateChecker.preferences(getTargetContext()).edit().putBoolean("systemVoice",false).apply();
         CountDownLatch synthesized=new CountDownLatch(1);String[] received={"",""};boolean[] local={false};
         BroadcastReceiver receiver=new BroadcastReceiver(){public void onReceive(Context c,Intent i){received[0]=i.getStringExtra("voice");received[1]=i.getStringExtra("text");local[0]=i.getBooleanExtra("embedded",false);synthesized.countDown();}};
         if(Build.VERSION.SDK_INT>=33)getTargetContext().registerReceiver(receiver,new IntentFilter("cn.lightrun.TEST_SYNTHESIZE"),Context.RECEIVER_EXPORTED);
@@ -142,16 +138,10 @@ public final class RunInstrumentation extends Instrumentation {
         VoiceCoach[] coach={null};
         try {
             runOnMainSync(()->{coach[0]=new VoiceCoach(getTargetContext());coach[0].speak(VoiceCoach.kilometer(1,1000,360000));});
-            if(expectedVoice==null){
-                for(int i=0;i<80;i++){Thread.sleep(100);waitForIdleSync();if(!coach[0].status.startsWith("正在检查"))break;}
-                check(coach[0].status.startsWith("无法识别"),mode+": unknown/online/uninstalled metadata is not misreported as uninstalled");
-                check(!synthesized.await(700,TimeUnit.MILLISECONDS),mode+": offline mode does not silently synthesize with an unverified voice");
-            } else {
-                check(synthesized.await(12,TimeUnit.SECONDS),mode+": Android TTS synthesis completes: "+coach[0].status);
-                check(expectedVoice.equals(received[0]),mode+": selected expected voice");
-                check(received[1].contains("已跑1公里")&&local[0]==embedded,mode+": Chinese text and embedded flag delivered");
-                check(coach[0].status.contains(compatibility?"由系统引擎决定":"离线中文语音已就绪"),mode+": accurate readiness label");
-            }
+            check(synthesized.await(12,TimeUnit.SECONDS),mode+": Android TTS synthesis completes: "+coach[0].status);
+            check(expectedVoice.equals(received[0]),mode+": preserves system voice");
+            check(received[1].contains("已跑1公里")&&!local[0],mode+": Chinese text without forced embedded synthesis");
+            check(coach[0].status.equals("中文语音已就绪"),mode+": readiness does not depend on voice-list metadata");
         } finally {
             runOnMainSync(()->{if(coach[0]!=null)coach[0].close();});
             getTargetContext().unregisterReceiver(receiver);
@@ -160,17 +150,63 @@ public final class RunInstrumentation extends Instrumentation {
     private void invalid(String json,String label){try{UpdateInfo.parse(json);check(false,label);}catch(Exception expected){check(true,label);}}
     private void updateTests() throws Exception {
         String hash=new String(new char[64]).replace('\0','a'),older=manifest(2,"1.1.0",hash),newer=manifest(3,"1.2.0",hash);
-        UpdateInfo g=UpdateInfo.parse(older),h=UpdateInfo.parse(newer);
+        UpdateInfo g=UpdateInfo.parse(older);
         check(g.code==2&&g.version.equals("1.1.0"),"valid update manifest");
-        check(UpdateInfo.newest(g,h)==h,"newest version across two sources");
-        check(UpdateInfo.newest(g,null)==g&&UpdateInfo.newest(null,h)==h,"either source alone remains usable");
-        check(UpdateInfo.newest(g,UpdateInfo.parse(manifest(2,"1.1.0",new String(new char[64]).replace('\0','b'))))==null,"conflicting mirror checksums rejected");
+        org.json.JSONObject single=new org.json.JSONObject(newer);single.remove("githubUrl");
+        check(UpdateInfo.parse(single.toString()).code==3,"GitHub field is optional");
+        check(UpdateInfo.parse(new org.json.JSONObject(newer).put("githubUrl","https://invalid.example").toString()).code==3,"legacy mirror field is ignored");
         invalid(older.replace("cn.lightrun.app","other.app"),"wrong application rejected");
         invalid(new org.json.JSONObject(older).put("giteeUrl","http://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.1.0").toString(),"cleartext update URL rejected");
         invalid(new org.json.JSONObject(older).put("giteeUrl","https://gitee.com.evil.invalid/XLxiaoliao/lightrun/releases/tag/v1.1.0").toString(),"untrusted update host rejected");
         invalid(new org.json.JSONObject(older).put("giteeUrl","https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.0.0").toString(),"mismatched release URL rejected");
         invalid(manifest(0,"1.1.0",hash),"invalid update version rejected");
         invalid(manifest(2,"1.1.0","bad"),"invalid APK checksum rejected");
+    }
+    private interface Attempt {void run() throws Exception;}
+    private void rejected(Attempt attempt,String label){boolean rejected=false;try{attempt.run();}catch(Exception expected){rejected=true;}check(rejected,label);}
+    private void downloadTests(Context context) throws Exception {
+        check(UpdateDownload.allowed("https://gitee.com/api/v5/repos/test",false),"metadata HTTPS allowed");
+        check(UpdateDownload.allowed("https://foruda.gitee.com/asset.apk",true)&&!UpdateDownload.allowed("https://foruda.gitee.com/asset.apk",false),"attachment CDN restricted to downloads");
+        for(String address:new String[]{"http://gitee.com/a","https://gitee.com.evil.invalid/a","https://user@gitee.com/a","https://gitee.com:443/a","https://github.com/a"})check(!UpdateDownload.allowed(address,true),"untrusted URL rejected: "+address);
+        byte[] fixture=new byte[40000];new Random(1).nextBytes(fixture);ByteArrayOutputStream out=new ByteArrayOutputStream();long[] progress={0};
+        UpdateDownload.transfer(new ByteArrayInputStream(fixture),out,fixture.length,()->{},count->progress[0]=count);
+        check(Arrays.equals(fixture,out.toByteArray())&&progress[0]==fixture.length,"download preserves bytes and reports progress");
+        rejected(()->UpdateDownload.transfer(new ByteArrayInputStream(fixture),new ByteArrayOutputStream(),fixture.length+1,()->{},n->{}),"truncated APK rejected");
+        rejected(()->UpdateDownload.transfer(new ByteArrayInputStream(fixture),new ByteArrayOutputStream(),fixture.length-1,()->{},n->{}),"oversized APK rejected");
+        ByteArrayOutputStream cancelled=new ByteArrayOutputStream();
+        rejected(()->UpdateDownload.transfer(new ByteArrayInputStream(fixture),cancelled,fixture.length,()->{throw new IOException("cancel");},n->{}),"cancel interrupts transfer");
+        check(cancelled.size()==0,"cancel does not write more bytes");
+        android.content.pm.PackageInfo installed=context.getPackageManager().getPackageInfo(context.getPackageName(),0);
+        File own=new File(context.getApplicationInfo().sourceDir);String ownHash=UpdateDownload.hash(own);
+        UpdateInfo expected=UpdateInfo.parse(manifest(installed.versionCode,installed.versionName,ownHash));
+        UpdateDownload.verify(context,own,expected);check(true,"installed APK passes hash/package/version/signature validation");
+        rejected(()->UpdateDownload.verify(context,own,UpdateInfo.parse(manifest(installed.versionCode,installed.versionName,new String(new char[64]).replace('\0','a')))),"wrong hash rejected");
+        rejected(()->UpdateDownload.verify(context,own,UpdateInfo.parse(manifest(installed.versionCode+1,installed.versionName,ownHash))),"wrong version rejected");
+        File other=new File(getContext().getApplicationInfo().sourceDir);String otherHash=UpdateDownload.hash(other);
+        rejected(()->UpdateDownload.verify(context,other,UpdateInfo.parse(manifest(installed.versionCode,installed.versionName,otherHash))),"wrong package rejected even with matching hash");
+        File apk=UpdateDownload.apk(context);apk.getParentFile().mkdirs();try(OutputStream file=new FileOutputStream(apk)){file.write(fixture);}
+        Uri uri=UpdateApkProvider.uri(context);
+        try(InputStream in=context.getContentResolver().openInputStream(uri)){check(in!=null&&in.read()==(fixture[0]&255),"provider reads private APK");}
+        rejected(()->{try(OutputStream ignored=context.getContentResolver().openOutputStream(uri)){}},"provider denies writing");
+        rejected(()->{try(InputStream ignored=context.getContentResolver().openInputStream(Uri.parse("content://cn.lightrun.app.updates/../files/current.json"))){}},"provider denies other paths");
+        android.content.pm.ProviderInfo provider=context.getPackageManager().resolveContentProvider(uri.getAuthority(),0);
+        check(provider!=null&&!provider.exported&&provider.grantUriPermissions,"provider requires explicit temporary read grant");
+        Intent install=MainActivity.installIntent(context);
+        check("content".equals(install.getData().getScheme())&&UpdateApkProvider.MIME.equals(install.getType())&&(install.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION)!=0,"installer opens content APK with read permission");
+        check(install.getClipData()!=null&&uri.equals(install.getClipData().getItemAt(0).getUri()),"installer URI grant survives intent forwarding");apk.delete();
+    }
+    private List<View> views(View root){List<View> result=new ArrayList<>();result.add(root);if(root instanceof ViewGroup){ViewGroup group=(ViewGroup)root;for(int i=0;i<group.getChildCount();i++)result.addAll(views(group.getChildAt(i)));}return result;}
+    private void homeTests() throws Exception {
+        runOnMainSync(()->{
+            List<View> home=views(activity.findViewById(android.R.id.content));
+            check(home.stream().noneMatch(v->v instanceof ScrollView),"homepage has no scrolling container");
+            GearButton gear=null;Button start=null;RouteView route=null;for(View v:home){if(v instanceof GearButton)gear=(GearButton)v;if(v instanceof Button&&"开跑".contentEquals(((Button)v).getText()))start=(Button)v;if(v instanceof RouteView)route=(RouteView)v;}
+            check(gear!=null&&gear.getWidth()>0&&gear.getHeight()>0,"gear settings is visible");
+            android.graphics.Rect bounds=new android.graphics.Rect();check(start!=null&&start.getGlobalVisibleRect(bounds)&&bounds.height()==start.getHeight(),"start button fits viewport");
+            check(route!=null&&route.getHeight()>0,"route fits remaining viewport");gear.performClick();
+            StringBuilder labels=new StringBuilder();for(View v:views(activity.findViewById(android.R.id.content)))if(v instanceof TextView)labels.append(((TextView)v).getText()).append('\n');
+            check(labels.indexOf("兼容模式")==-1&&labels.indexOf("Gitee")==-1&&labels.indexOf("GitHub")==-1,"settings has no compatibility toggle or update-source labels");activity.onBackPressed();
+        });waitForIdleSync();
     }
     private void fix(double lat,double lon,float accuracy) throws Exception {
         Location p=new Location(LocationManager.GPS_PROVIDER);p.setLatitude(lat);p.setLongitude(lon);p.setAccuracy(accuracy);p.setTime(System.currentTimeMillis());p.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());

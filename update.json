@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "applicationId": "cn.lightrun.app",
-  "versionCode": 4,
-  "versionName": "1.1.2",
-  "notes": "修正中文音色识别和误报未安装的问题，增加系统音色兼容模式。若系统试听正常而应用仍无法识别，可在设置中开启兼容模式并断网试听。直接覆盖安装，保留运动记录。",
-  "sha256": "5622ab8dcaea48751fb6f3e9fc2fcecd4d4483c57a43d214b10fd57b3bf8a879",
-  "giteeUrl": "https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.1.2",
-  "githubUrl": "https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.1.2"
+  "versionCode": 5,
+  "versionName": "1.2.0",
+  "notes": "更新在应用内下载，显示真实进度，可取消或重试。中文播报默认使用系统音色。首页固定为一屏，角落齿轮进入设置。请直接覆盖安装，保留运动记录。",
+  "sha256": "90bffddd17791eb5214553baf151c40b9a91a78771d725e718b7d000ef711247",
+  "giteeUrl": "https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.2.0",
+  "githubUrl": "https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.2.0"
 }
