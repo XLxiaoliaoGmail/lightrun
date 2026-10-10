@@ -66,6 +66,28 @@ public final class CoreTests {
         completed.completeKilometerMilestone(1);check(completed.pendingKilometerMilestone()==0,"completed playback prevents duplicates");
         completed.distanceM=2005;completed.pause(10);completed.completeKilometerMilestone(2);
         check(completed.announcedKilometer==1,"late completion after pause cannot consume milestone");
+        historyTests();analysisTests();
         System.out.println("PASS: "+checks+" core assertions");
+    }
+    private static RunSession record(String date,java.time.ZoneId zone,double meters,long steps,boolean measured){RunSession r=new RunSession(java.time.LocalDate.parse(date).atStartOfDay(zone).toInstant().toEpochMilli());r.distanceM=meters;r.steps=steps;r.stepsRecorded=measured;r.accumulatedMs=60000;return r;}
+    private static void historyTests(){
+        java.time.ZoneId zone=java.time.ZoneId.of("Asia/Shanghai");java.time.LocalDate today=java.time.LocalDate.parse("2026-10-10");
+        RunSession a=record("2026-10-10",zone,1000,1200,true),b=record("2026-10-10",zone,500,0,false),c=record("2026-10-04",zone,2000,2500,true),d=record("2026-10-03",zone,3000,3000,true),e=record("2026-10-11",zone,4000,4000,true);
+        java.util.List<RunSession> list=java.util.Arrays.asList(a,b,c,d,e);HistorySummary h=new HistorySummary(list,today,7,zone);
+        check(h.days.size()==7&&h.days.get(0).date.toString().equals("2026-10-04"),"calendar seven day range includes today");
+        check(h.runs==3&&h.measuredRuns==2,"out of range and future runs excluded");near(h.meters,3500,0,"seven day distance");check(h.steps==3700&&h.duration==180000,"recorded steps and durations summed");
+        check(h.days.get(6).runs==2&&h.days.get(6).stepLabel().startsWith("≥"),"same day combines runs without fabricating missing steps");
+        check(h.stepLabel().startsWith("已记录"),"partial aggregate clearly identified");check(h.days.get(1).runs==0&&h.days.get(1).steps==0,"empty days remain present");
+        HistorySummary thirty=new HistorySummary(list,today,30,zone);check(thirty.days.size()==30&&thirty.runs==4,"thirty day range");
+        HistorySummary unknown=new HistorySummary(java.util.List.of(b),today,7,zone);check(unknown.days.get(6).stepLabel().equals("未记录")&&unknown.stepLabel().equals("步数未记录"),"unknown steps distinct from zero");
+        RunSession invalid=record("2026-10-10",zone,Double.NaN,-20,true);invalid.accumulatedMs=-10;HistorySummary valid=new HistorySummary(java.util.List.of(invalid),today,7,zone);check(valid.meters==0&&valid.steps==0&&valid.duration==0,"invalid aggregate values bounded");
+        RunSession midnight=new RunSession(java.time.Instant.parse("2026-10-09T16:30:00Z").toEpochMilli());HistorySummary local=new HistorySummary(java.util.List.of(midnight),today,7,zone);check(local.days.get(6).runs==1,"local date rather than UTC date");
+        java.time.ZoneId ny=java.time.ZoneId.of("America/New_York");HistorySummary dst=new HistorySummary(java.util.List.of(record("2026-11-01",ny,1,1,true),record("2026-11-02",ny,1,1,true)),java.time.LocalDate.parse("2026-11-02"),7,ny);check(dst.days.get(5).runs==1&&dst.days.get(6).runs==1,"DST does not shift calendar day buckets");
+    }
+    private static void analysisTests(){
+        RunSession r=new RunSession(1000);r.endedAt=121000;r.accumulatedMs=60000;r.distanceM=100;r.stepsRecorded=true;r.steps=120;
+        r.points.add(new RunSession.Point(0,0,1000,4,0));r.points.add(new RunSession.Point(.0001,0,6000,6,0));r.points.add(new RunSession.Point(.01,0,16000,8,1));r.points.add(new RunSession.Point(.0101,0,21000,10,1));r.points.add(new RunSession.Point(.0102,0,61001,12,1));r.points.add(new RunSession.Point(1,0,62000,14,1));
+        RunAnalysis a=new RunAnalysis(r);check(a.samples.size()==2&&a.segments==2,"speed excludes segment boundaries long gaps and impossible jumps");near(a.gpsMeters,22.239,.02,"analysis distance excludes gaps");near(a.peakSpeed,8.006,.02,"derived speed km per hour");near(a.meanAccuracy,9,0,"mean GPS accuracy");near(a.worstAccuracy,14,0,"worst GPS accuracy");check(a.wallMs==120000&&a.inactiveMs==60000,"active and inactive times");near(RunAnalysis.cadence(r),120,0,"measured step cadence");near(RunAnalysis.stride(r),100d/120,0,"measured mean stride");r.stepsRecorded=false;check(RunAnalysis.cadence(r)==0&&RunAnalysis.stride(r)==0,"missing steps cannot create estimates");
+        r.endedAt=2000;RunAnalysis brokenClock=new RunAnalysis(r);check(brokenClock.wallMs==60000&&brokenClock.inactiveMs==0,"wall clock rollback cannot make negative activity chart");
     }
 }

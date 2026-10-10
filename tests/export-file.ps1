@@ -14,9 +14,22 @@ function ClickNode($node) {
     & $adb -s $Device shell input tap ([int](($b[0]+$b[2])/2)) ([int](($b[1]+$b[3])/2)) | Out-Null
 }
 function ClickText([string]$label) { $xml=Dump;ClickNode ($xml.SelectNodes('//node') | Where-Object {$_.text -eq $label} | Select-Object -First 1) }
-ClickText '历史记录'
+function ScrollToText([string]$label) {
+    for($attempt=0;$attempt -lt 18;$attempt++){
+        $xml=Dump
+        if($xml.SelectNodes('//node')|Where-Object {$_.text.Contains($label) -and $_.bounds -ne '[0,0][0,0]'}){return}
+        $screen=$xml.SelectNodes('//node')|Select-Object -First 1
+        $b=[regex]::Matches($screen.bounds,'\d+')|ForEach-Object {[int]$_.Value}
+        & $adb -s $Device shell input swipe ([int](($b[0]+$b[2])/2)) ([int]($b[1]+($b[3]-$b[1])*.76)) ([int](($b[0]+$b[2])/2)) ([int]($b[1]+($b[3]-$b[1])*.25)) 250 | Out-Null
+    }
+    throw "Scroll target missing: $label"
+}
+$xml=Dump
+ClickNode ($xml.SelectNodes('//node') | Where-Object {$_.'content-desc' -eq '历史记录'} | Select-Object -First 1)
+ScrollToText '0.01 公里'
 $xml=Dump
 ClickNode ($xml.SelectNodes('//node') | Where-Object {$_.'content-desc' -like '*跑步记录'} | Select-Object -First 1)
+ScrollToText '导出 GPX 轨迹'
 ClickText '导出 GPX 轨迹'
 $xml=Dump
 $fileName=($xml.SelectNodes('//node') | Where-Object {$_.'resource-id' -eq 'android:id/title' -and $_.text -like '*.gpx'} | Select-Object -First 1).text

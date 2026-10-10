@@ -12,7 +12,6 @@ import java.util.*;
 
 /** User-initiated download into private cache; no browser, token, or silent installation. */
 public final class UpdateDownload {
-    private static final String API="https://gitee.com/api/v5/repos/XLxiaoliao/lightrun/releases/";
     private static final long LIMIT=100*1024*1024L;
     public static volatile String state="idle",message="";
     public static volatile long received,total;
@@ -33,19 +32,9 @@ public final class UpdateDownload {
         try {
             if(!target.getParentFile().isDirectory()&&!target.getParentFile().mkdirs())throw new IOException("Cache unavailable");
             if(target.exists()&&!target.delete())throw new IOException("Cannot replace APK");
-            JSONObject release=new JSONObject(json(API+"tags/v"+update.version));
-            if(!("v"+update.version).equals(release.getString("tag_name"))||release.optBoolean("prerelease",false))throw new IOException("Wrong release");
-            long releaseId=release.getLong("id");if(releaseId<1)throw new IOException("Invalid release");
-            JSONArray assets=new JSONArray(json(API+releaseId+"/attach_files"));
-            long attachment=0;int matches=0;
-            for(int i=0;i<assets.length();i++){
-                JSONObject asset=assets.getJSONObject(i);
-                if(("lightrun-"+update.version+".apk").equals(asset.getString("name"))){matches++;attachment=asset.getLong("id");total=asset.getLong("size");}
-            }
-            if(matches!=1||attachment<1||total<1||total>LIMIT)throw new IOException("Invalid attachment");
-            HttpURLConnection c=open(API+releaseId+"/attach_files/"+attachment+"/download",true);
+            HttpURLConnection c=open(address(update),true);
             try {
-                long length=c.getContentLengthLong();if(length>0&&length!=total)throw new IOException("Wrong content length");
+                total=c.getContentLengthLong();if(total<1||total>LIMIT)throw new IOException("Invalid attachment size");
                 state="downloading";message="正在下载更新…";
                 try(InputStream in=c.getInputStream();FileOutputStream out=new FileOutputStream(partial)){
                     transfer(in,out,total,()->{ensureActive();},count->received=count);out.getFD().sync();
@@ -65,13 +54,7 @@ public final class UpdateDownload {
         while((n=in.read(buffer))!=-1){check.run();count+=n;if(count>expected)throw new IOException("Oversized APK");out.write(buffer,0,n);progress.update(count);}
         check.run();if(count!=expected)throw new IOException("Incomplete APK");
     }
-    private static String json(String address) throws Exception {
-        HttpURLConnection c=open(address,false);
-        try(InputStream input=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()) {
-            byte[] b=new byte[4096];int n;while((n=input.read(b))!=-1){ensureActive();if(out.size()+n>131072)throw new IOException("Oversized metadata");out.write(b,0,n);}
-            return out.toString(StandardCharsets.UTF_8.name());
-        }finally{c.disconnect();connection=null;}
-    }
+    static String address(UpdateInfo update){return "https://gitee.com/XLxiaoliao/lightrun/releases/download/v"+update.version+"/lightrun-"+update.version+".apk";}
     static boolean allowed(String address,boolean binary) {
         try {URI u=new URI(address);return "https".equals(u.getScheme())&&u.getUserInfo()==null&&u.getPort()==-1&&u.getFragment()==null
                 &&("gitee.com".equals(u.getHost())||(binary&&"foruda.gitee.com".equals(u.getHost())));}

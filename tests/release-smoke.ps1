@@ -26,6 +26,16 @@ function Expect([string]$Text) {
     }
     throw "Expected UI text: $Text"
 }
+function ScrollToText([string]$label) {
+    for($attempt=0;$attempt -lt 18;$attempt++){
+        $xml=UI
+        if($xml.SelectNodes('//node')|Where-Object {$_.text.Contains($label) -and $_.bounds -ne '[0,0][0,0]'}){return}
+        $screen=$xml.SelectNodes('//node')|Select-Object -First 1
+        $b=[regex]::Matches($screen.bounds,'\d+')|ForEach-Object {[int]$_.Value}
+        & $adb -s $Device shell input swipe ([int](($b[0]+$b[2])/2)) ([int]($b[1]+($b[3]-$b[1])*.76)) ([int](($b[0]+$b[2])/2)) ([int]($b[1]+($b[3]-$b[1])*.25)) 250 | Out-Null
+    }
+    throw "Scroll target missing: $label"
+}
 DeviceCommand @('shell','pm','clear','cn.lightrun.app')
 DeviceCommand @('shell','am','start','-W','-n','cn.lightrun.app/.MainActivity')
 Expect '开跑'
@@ -33,7 +43,7 @@ Tap '开跑'
 Tap '' 'com.android.permissioncontroller:id/permission_deny_button'
 Expect '需要精确位置'
 Tap '稍后'
-Expect '准备好了'
+Expect '开跑'
 Tap '开跑'
 Tap '' 'com.android.permissioncontroller:id/permission_location_accuracy_radio_coarse'
 Tap '' 'com.android.permissioncontroller:id/permission_allow_foreground_only_button'
@@ -46,7 +56,7 @@ Tap '开跑'
 Tap '' 'com.android.permissioncontroller:id/permission_deny_button'
 Tap '' 'com.android.permissioncontroller:id/permission_deny_button'
 Expect '开启手机定位'
-Tap '取消'
+Tap '稍后'
 DeviceCommand @('shell','settings','put','secure','location_mode','3')
 Tap '开跑'
 Expect '暂停'
@@ -63,14 +73,17 @@ Expect '继续跑'
 Tap '结束并保存'
 Tap '结束并保存'
 Expect '我的跑步'
-# Saved record opens details, providing the system document export picker.
+# Saved record is below the daily chart.
+ScrollToText '0.01 公里'
 $xml=UI
 $card=$xml.SelectNodes('//node') | Where-Object {$_.'content-desc' -like '*跑步记录'} | Select-Object -First 1
 if(-not $card){throw 'Saved history card not found'}
 $b=[regex]::Matches($card.bounds,'\d+') | ForEach-Object {[int]$_.Value}
 DeviceCommand @('shell','input','tap',"$([int](($b[0]+$b[2])/2))","$([int](($b[1]+$b[3])/2))")
 Expect '跑步记录'
-Expect '个轨迹点'
+ScrollToText '定位点 / 轨迹段'
+Expect '定位点 / 轨迹段'
+ScrollToText '导出 GPX 轨迹'
 Tap '导出 GPX 轨迹'
 Expect '轻跑_'
 DeviceCommand @('shell','input','keyevent','4')

@@ -26,14 +26,14 @@ public final class UpdateChecker {
     public static boolean check(Context context,boolean manual,Callback callback) {
         Context app=context.getApplicationContext();SharedPreferences prefs=preferences(app);
         if(prefs.getBoolean("running",false))return false;
-        long now=System.currentTimeMillis(),last=prefs.getLong("updateAttempt",0);
-        if(!manual&&(!prefs.getBoolean("autoUpdate",true)||(now>=last&&now-last<INTERVAL)))return false;
+        long now=System.currentTimeMillis();
+        if(!manual&&!prefs.getBoolean("autoUpdate",true))return false;
         if(!checking.compareAndSet(false,true))return false;
         prefs.edit().putLong("updateAttempt",now).putString("updateStatus","正在检查更新…").apply();
         new Thread(()->{
             String status;UpdateInfo best=null;
             try {
-                String text=fetch("https://gitee.com/api/v5/repos/XLxiaoliao/lightrun/contents/update.json?ref=main");
+                String text=fetch("https://raw.giteeusercontent.com/XLxiaoliao/lightrun/raw/main/update.json");
                 best=UpdateInfo.parse(text);
                 status=best.code>installedCode(app)?"发现新版本 "+best.version:"已是最新版本";
                 prefs.edit().putString("updateManifest",text).putLong("updateSuccess",System.currentTimeMillis()).apply();
@@ -55,9 +55,7 @@ public final class UpdateChecker {
                 byte[] buffer=new byte[4096];int count;
                 while((count=input.read(buffer))!=-1){if(bytes.size()+count>65536)throw new IOException("Oversized response");bytes.write(buffer,0,count);}
                 String text=bytes.toString(StandardCharsets.UTF_8.name());
-                JSONObject wrapper=new JSONObject(text);
-                if(!"base64".equals(wrapper.getString("encoding")))throw new IOException("Invalid content encoding");
-                return new String(Base64.decode(wrapper.getString("content"),Base64.DEFAULT),StandardCharsets.UTF_8);
+                return text;
             }
         }finally{connection.disconnect();}
     }

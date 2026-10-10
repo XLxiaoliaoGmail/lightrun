@@ -43,7 +43,7 @@ public final class RunInstrumentation extends Instrumentation {
         updateTests();
         downloadTests(context);
         Intent intent=new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        activity=(MainActivity)startActivitySync(intent);waitForIdleSync();
+        activity=(MainActivity)startActivitySync(intent);Thread.sleep(500);waitForIdleSync();
         homeTests();
         speechTests();
         CountDownLatch bound=new CountDownLatch(1);
@@ -58,8 +58,13 @@ public final class RunInstrumentation extends Instrumentation {
         locations.addTestProvider(LocationManager.GPS_PROVIDER,false,false,false,false,true,true,true,3,1);
         locations.setTestProviderEnabled(LocationManager.GPS_PROVIDER,true);
         runOnMainSync(()->context.startForegroundService(new Intent(context,TrackingService.class).setAction(TrackingService.START)));
-        Thread.sleep(700);waitForIdleSync();
+        Thread.sleep(1600);waitForIdleSync();
         check(service.session!=null&&service.session.active,"start via foreground service");
+        runOnMainSync(()->{
+            List<View> running=views(activity.findViewById(android.R.id.content));
+            check(running.stream().anyMatch(v->v instanceof RouteView&&v.getHeight()>0),"run start reveals trajectory UI");
+            check(running.stream().noneMatch(v->v instanceof ScrollView),"running home stays one screen");
+        });
         check(((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).getActiveNotifications().length>0,"foreground notification");
         fix(31,121,5);fix(31.00005,121,5);fix(31.00010,121,5);
         check(service.session.points.size()>=3,"real GPS callback collection");
@@ -94,6 +99,7 @@ public final class RunInstrumentation extends Instrumentation {
         for(RunSession s:history)if(s.id.equals(id))savedRun=s;
         check(savedRun!=null&&savedRun.endedAt>0,"history save");check(store.restore()==null,"saved current removed");
         check(savedRun.stepsRecorded&&savedRun.steps==127,"history preserves steps");
+        historyUiTests();
         ByteArrayOutputStream gpx=new ByteArrayOutputStream();RunStore.gpx(savedRun,gpx);
         DocumentBuilderFactory factory=DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
         org.w3c.dom.Document xml=factory.newDocumentBuilder().parse(new ByteArrayInputStream(gpx.toByteArray()));
@@ -221,6 +227,7 @@ public final class RunInstrumentation extends Instrumentation {
     private void updateTests() throws Exception {
         String hash=new String(new char[64]).replace('\0','a'),older=manifest(2,"1.1.0",hash),newer=manifest(3,"1.2.0",hash);
         UpdateInfo g=UpdateInfo.parse(older);
+        check(UpdateDownload.address(g).equals("https://gitee.com/XLxiaoliao/lightrun/releases/download/v1.1.0/lightrun-1.1.0.apk"),"download resolves a binary file rather than a release page");
         check(g.code==2&&g.version.equals("1.1.0"),"valid update manifest");
         org.json.JSONObject single=new org.json.JSONObject(newer);single.remove("githubUrl");
         check(UpdateInfo.parse(single.toString()).code==3,"GitHub field is optional");
@@ -266,14 +273,39 @@ public final class RunInstrumentation extends Instrumentation {
         check(install.getClipData()!=null&&uri.equals(install.getClipData().getItemAt(0).getUri()),"installer URI grant survives intent forwarding");apk.delete();
     }
     private List<View> views(View root){List<View> result=new ArrayList<>();result.add(root);if(root instanceof ViewGroup){ViewGroup group=(ViewGroup)root;for(int i=0;i<group.getChildCount();i++)result.addAll(views(group.getChildAt(i)));}return result;}
+    private void clickLabel(View root,String label){for(View v:views(root))if(v instanceof TextView&&label.contentEquals(((TextView)v).getText())){v.performClick();return;}throw new AssertionError("Missing button: "+label);}
+    private void historyUiTests() throws Exception {
+        runOnMainSync(()->{for(View v:views(activity.findViewById(android.R.id.content)))if(v instanceof ClockButton){v.performClick();break;}});Thread.sleep(500);waitForIdleSync();
+        runOnMainSync(()->{
+            View root=activity.findViewById(android.R.id.content);DailyChartView chart=null;View card=null;
+            for(View v:views(root)){if(v instanceof DailyChartView)chart=(DailyChartView)v;if(v.isClickable()&&v.getContentDescription()!=null&&v.getContentDescription().toString().endsWith("跑步记录"))card=v;}
+            check(chart!=null&&chart.getContentDescription().toString().contains("最近7天"),"history defaults to seven day chart");
+            clickLabel(root,"最近 30 天");check(chart.getContentDescription().toString().contains("最近30天"),"thirty day selection");
+            clickLabel(root,"仅步数");clickLabel(root,"仅距离");clickLabel(root,"距离 + 步数");clickLabel(root,"最近 7 天");
+            check(card!=null,"history list follows chart");card.performClick();
+        });Thread.sleep(500);waitForIdleSync();
+        runOnMainSync(()->{try{
+            Field field=MainActivity.class.getDeclaredField("detailDialog");field.setAccessible(true);StyledDialog dialog=(StyledDialog)field.get(activity);
+            check(dialog!=null&&dialog.isShowing(),"record opens app styled modal");
+            View decor=dialog.getWindow().getDecorView();android.graphics.Rect frame=new android.graphics.Rect();activity.getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
+            check(Math.abs(decor.getWidth()-activity.getResources().getDisplayMetrics().widthPixels*.9)<4,"detail is ninety percent screen width");
+            check(Math.abs(decor.getHeight()-frame.height()*.9)<4,"detail is ninety percent available screen height");
+            check(views(dialog.body).stream().filter(v->v instanceof RunGraphView).count()==3,"record has activity speed and precision graphs");
+            check(views(dialog.body).stream().anyMatch(v->v instanceof RouteView),"detail includes route");
+            check(views(dialog.body).stream().anyMatch(v->v instanceof TextView&&"平均步频".contentEquals(((TextView)v).getText())),"detail includes measured cadence");
+            dialog.closeNow();activity.onBackPressed();
+        }catch(ReflectiveOperationException e){throw new RuntimeException(e);}});Thread.sleep(400);waitForIdleSync();
+    }
     private void homeTests() throws Exception {
         runOnMainSync(()->{
             List<View> home=views(activity.findViewById(android.R.id.content));
             check(home.stream().noneMatch(v->v instanceof ScrollView),"homepage has no scrolling container");
             GearButton gear=null;Button start=null;RouteView route=null;for(View v:home){if(v instanceof GearButton)gear=(GearButton)v;if(v instanceof Button&&"开跑".contentEquals(((Button)v).getText()))start=(Button)v;if(v instanceof RouteView)route=(RouteView)v;}
             check(gear!=null&&gear.getWidth()>0&&gear.getHeight()>0,"gear settings is visible");
-            android.graphics.Rect bounds=new android.graphics.Rect();check(start!=null&&start.getGlobalVisibleRect(bounds)&&bounds.height()==start.getHeight(),"start button fits viewport");
-            check(route!=null&&route.getHeight()>0,"route fits remaining viewport");gear.performClick();
+            android.graphics.Rect bounds=new android.graphics.Rect();check(start!=null&&start.getGlobalVisibleRect(bounds)&&Math.abs(bounds.height()-start.getHeight())<=2,"start button fits viewport");
+            check(route==null&&home.stream().noneMatch(v->v instanceof TextView&&((TextView)v).getText().toString().contains("运动时长")),"idle home contains no timer or route");
+            check(start.getWidth()==start.getHeight(),"idle start is a circle");
+            check(home.stream().anyMatch(v->v instanceof ClockButton),"history clock matches gear icon style");gear.performClick();
             StringBuilder labels=new StringBuilder();for(View v:views(activity.findViewById(android.R.id.content)))if(v instanceof TextView)labels.append(((TextView)v).getText()).append('\n');
             check(labels.indexOf("兼容模式")==-1&&labels.indexOf("Gitee")==-1&&labels.indexOf("GitHub")==-1,"settings has no compatibility toggle or update-source labels");activity.onBackPressed();
         });waitForIdleSync();

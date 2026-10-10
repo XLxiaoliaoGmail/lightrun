@@ -1,11 +1,11 @@
 # Android 应用更新实现与复用指南
 
-本文对应轻跑 v1.2.0（versionCode 5），供其他项目的开发 agent 复用。流程是：公开版本文件 → 用户选择下载 → 应用内进度 → 安装包校验 → Android 系统确认覆盖安装。
+本文对应轻跑 v1.3.0（versionCode 8），供其他项目的开发 agent 复用。流程是：公开版本文件 → 用户选择下载 → 应用内进度 → 安装包校验 → Android 系统确认覆盖安装。
 
 ## 产品行为
 
 - 客户端仅访问 Gitee；GitHub 可以镜像源码和产物，不参与应用更新。
-- 默认自动检查，每 24 小时最多自动尝试一次，失败也计入间隔；手动检查不受间隔限制。
+- 默认每次新打开应用或从后台返回时自动检查，不限制每天次数；可关闭自动检查或随时手动检查。
 - 更新弹窗只显示版本、说明和“下载更新”，不显示平台名称，不打开浏览器。
 - 应用内显示真实下载字节和进度，支持取消、关闭弹窗后继续下载、重新查看进度、失败重试。
 - 下载完成并校验后显示“安装更新”。必要时先进入本应用的安装授权设置，再进入系统安装确认页。
@@ -21,9 +21,9 @@
 | 文件 | 职责 |
 | --- | --- |
 | UpdateInfo.java | 严格验证元数据 |
-| UpdateChecker.java | 单源检查、间隔、并发保护和缓存 |
+| UpdateChecker.java | 单源检查、并发保护和缓存 |
 | UpdateJobService.java | Android JobScheduler 后台调度 |
-| UpdateDownload.java | 查询附件、下载、取消、进度和 APK 校验 |
+| UpdateDownload.java | 公开 APK 文件下载、取消、进度和校验 |
 | UpdateApkProvider.java | 只读的私有 APK URI |
 | MainActivity.java | 更新与进度弹窗、安装授权及安装器调用 |
 
@@ -47,35 +47,33 @@
 
 哈希文本是占位符，不能直接发布。判断更新用递增整数 versionCode，不能比较版本名的字符串大小。版本名须与 APK、Release 标签和附件名称一致。
 
-轻跑继续提供旧 schema 1 客户端使用的 githubUrl 字段，便于旧版识别新版；v1.2.0 忽略该字段，不会请求 GitHub。新项目无需此兼容字段。旧二进制的联网行为只有覆盖升级后才会改变。
+轻跑继续提供旧 schema 1 客户端使用的 githubUrl 字段，便于旧版识别新版；v1.2.0 及以后版本忽略该字段，不会请求 GitHub。新项目无需此兼容字段。旧二进制的联网行为只有覆盖升级后才会改变。
 
 解析时验证 schema、applicationId、正整数代码、限定格式版本名、64 位小写哈希、说明长度及固定项目 HTTPS 发布路径。拒绝 HTTP、伪造域名、用户信息、额外端口、错版本路径。轻跑限制说明为 4000 字符。
 
 ## 检查更新
 
 ```text
-GET https://gitee.com/api/v5/repos/OWNER/REPO/contents/update.json?ref=main
+GET https://raw.giteeusercontent.com/OWNER/REPO/raw/main/update.json
 ```
 
-响应是 JSON 包装：验证 encoding 为 base64，解码 content 后再解析更新 JSON。轻跑限制响应为 64 KiB，连接/读取超时各 4 秒，拒绝重定向。请求没有令牌、定位、步数、设备型号或标识。
+响应直接是 update.json。这个地址是 Gitee 仓库 raw 链接实际跳转到的公开文件服务；客户端直接读取固定 HTTPS 地址，不需要 REST API 或令牌。轻跑限制响应为 64 KiB，连接/读取超时各 4 秒，拒绝重定向。请求没有令牌、定位、步数、设备型号或标识。
 
-后台任务和进入应用时检查共用同一时间间隔与并发锁。请求前保存尝试时间，失败不误报“已是最新版本”；可以保留以前已经验证的版本缓存。自动检查不触发下载。系统后台调度可能被省电或网络策略延迟，因此不能承诺固定时刻执行；保留前台到期检查和手动入口。
+进入应用的检查没有每日限额。onCreate 为一次新的打开标记 launchCheck，onResume 消费此标记并异步检查，onStop 再次标记，确保从后台返回也会检查；Activity 因配置变化重建时保存并恢复标记，避免旋转造成重复请求。后台 JobScheduler 仍为每天一次的尽力调度，和前台共用并发锁；并发请求只保留一个。请求前保存尝试时间，失败不误报“已是最新版本”；可以保留以前已经验证的版本缓存。自动检查不触发下载。系统后台调度可能被省电或网络策略延迟，因此不能承诺固定时刻执行；保留每次启动检查和手动入口。
 
-## 查询真正的 APK 附件
+## 下载真正的 APK 文件
 
-发布页是网页，不能当下载文件交给浏览器。依次使用：
+发布页是网页。客户端依据严格验证过的版本名构造固定公开文件地址，直接下载字节，不打开浏览器：
 
 ```text
-GET https://gitee.com/api/v5/repos/OWNER/REPO/releases/tags/v{versionName}
-GET https://gitee.com/api/v5/repos/OWNER/REPO/releases/{releaseId}/attach_files
-GET https://gitee.com/api/v5/repos/OWNER/REPO/releases/{releaseId}/attach_files/{attachmentId}/download
+GET https://gitee.com/OWNER/REPO/releases/download/v{versionName}/lightrun-{versionName}.apk
 ```
 
-验证标签恰好为 v{versionName}，不接受预发布；ID 为正数。附件必须唯一且名称符合约定，例如 `lightrun-{versionName}.apk`。其他项目统一替换自己的前缀。大小必须为正数，轻跑上限 100 MiB。
+其他项目统一替换仓库、包名前缀与文件名。必须发布恰好同名的 APK 附件。
 
-下载 GET 会重定向到 CDN。本实现只允许 HTTPS 的 gitee.com 和 foruda.gitee.com，最多四次重定向；元数据只允许 Gitee。严格比较完整域名，不能用宽松后缀匹配，不能 HTTP 回退。已验证接口的 HEAD 可能与 GET 行为不同，不能用 HEAD 代替实际下载验证。
+轻跑要求响应声明正的 Content-Length，且不超过 100 MiB；下载严格核对实际字节数，并继续校验 SHA-256、包名、版本和签名。仅允许固定 Gitee 域名及已验证的附件 CDN foruda.gitee.com，最多四次重定向，每一跳都验证 HTTPS、域名、端口与用户信息。没有已知长度的响应会拒绝下载，不能伪造百分比。
 
-下载连接超时 5 秒、读取超时 8 秒，Release 与附件列表最大 128 KiB。平台以后变更接口或 CDN 域名时，应查证和测试后更新明确的允许列表。
+旧版使用 Release REST API 查询附件；该接口在部分网络下可能限制匿名请求。v1.3.0 采用公开文件地址，检查约数百字节，不把维护令牌写入 APK。Gitee 的路径与 CDN 可能变化，若迁移必须验证公开匿名可访问性；不要把错误网页、登录页或带令牌链接当成 APK。
 
 ## 下载状态与文件
 
@@ -135,7 +133,7 @@ Provider 仅接受一个精确 URI：`content://{applicationId}.updates/update.a
 - 把关键业务状态接入暂缓更新逻辑。
 - 保留自动检查开关、手动入口、取消、重试、重开进度和授权拒绝后的出口。
 - 配置 Provider、安装权限与 Intent；不申请不必要的存储权限。
-- 后台和前台共用检查间隔；旧客户端需要的字段继续发布。
+- 每次启动检查不受后台日周期限制；旧客户端需要的字段继续发布。
 
 ## 发布顺序
 
@@ -155,7 +153,7 @@ GitHub 镜像可以同步同一提交、标签和相同产物，不需要客户�
 
 | 场景 | 期望 |
 | --- | --- |
-| 正常检查、同版、新版、24 小时重复进入 | 状态正确、不重复自动请求，手动仍可检查 |
+| 正常检查、同版、新版、同一天重复打开 | 状态正确，每次新打开均请求，关闭自动检查后只手动请求 |
 | 离线、超时、错 JSON/包名/发布路径 | 清晰失败，不误报最新，不打开浏览器 |
 | 取消、关闭弹窗、旋转 | 清理临时文件、可重开进度、不重复下载 |
 | 文件短缺、超量、错误哈希 | 拒绝安装，可重试 |
