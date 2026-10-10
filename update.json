@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "applicationId": "cn.lightrun.app",
-  "versionCode": 5,
-  "versionName": "1.2.0",
-  "notes": "更新在应用内下载，显示真实进度，可取消或重试。中文播报默认使用系统音色。首页固定为一屏，角落齿轮进入设置。请直接覆盖安装，保留运动记录。",
-  "sha256": "90bffddd17791eb5214553baf151c40b9a91a78771d725e718b7d000ef711247",
-  "giteeUrl": "https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.2.0",
-  "githubUrl": "https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.2.0"
+  "versionCode": 6,
+  "versionName": "1.2.1",
+  "notes": "本版本仅递增版本号，用于测试应用内检查、下载和覆盖更新，功能与 v1.2.0 一致。请直接覆盖安装，不要卸载。",
+  "sha256": "65722ac23ad17dd5bd7b0597f63c696ca97b5e822de42fc5bd2e500b8e6b3045",
+  "giteeUrl": "https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.2.1",
+  "githubUrl": "https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.2.1"
 }

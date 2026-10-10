@@ -38,7 +38,7 @@
 
 ## 安装
 
-最低 Android 8.0（API 26）。下载 `lightrun-1.2.0.apk`：[Gitee 发布页](https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.2.0) · [GitHub 发布页](https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.2.0) · [仓库中的发布包](releases/v1.2.0/lightrun-1.2.0.apk)。
+最低 Android 8.0（API 26）。下载 `lightrun-1.2.1.apk`：[Gitee 发布页](https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.2.1) · [GitHub 发布页](https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.2.1) · [仓库中的发布包](releases/v1.2.1/lightrun-1.2.1.apk)。
 
 从官方 v1.0.0 升级时直接覆盖安装，不要先卸载。旧运动记录会保留，旧记录的步数显示为“未记录”。
 
