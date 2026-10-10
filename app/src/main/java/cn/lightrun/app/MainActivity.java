@@ -21,26 +21,26 @@ import java.util.*;
 public final class MainActivity extends Activity {
     private static final int GREEN=Color.rgb(22,75,56),BG=Color.rgb(245,243,237),MUTED=Color.rgb(111,119,108);
     private final Handler handler=new Handler(Looper.getMainLooper());
-    private final List<StyledDialog> dialogs=new ArrayList<>();
     private TrackingService service;
     private boolean bound,visible,pendingStart,homeExpanded,launchCheck=true;
-    private String page="home";
+    private String page="home",returnPage="home",restorePage;
     private FrameLayout root;
-    private View pageView,banner;
+    private View pageView;
+    private TextView notice;
+    private final Runnable hideNotice=()->{if(notice!=null)notice.setVisibility(View.GONE);};
     private LinearLayout content;
     private TextView timer,distance,pace,status,steps,updateStatus,voiceStatus;
     private Button primary,download,downloadAction,downloadCancel;
     private GearButton settingsGear;
-    private StyledDialog downloadDialog,detailDialog;
     private ProgressBar downloadProgress;
     private TextView downloadMessage;
-    private boolean pendingInstall,restoreDownload;
+    private boolean pendingInstall;
     private RouteView route;
     private RunSession detail,export;
     private RunStore store;
     private int historyDays=7,historyMode;
     private final ServiceConnection connection=new ServiceConnection() {
-        @Override public void onServiceConnected(ComponentName name,IBinder binder){service=((TrackingService.LocalBinder)binder).service();refresh();}
+        @Override public void onServiceConnected(ComponentName name,IBinder binder){service=((TrackingService.LocalBinder)binder).service();if(restorePage!=null){String target=restorePage;restorePage=null;openPage(target);}refresh();}
         @Override public void onServiceDisconnected(ComponentName name){service=null;refresh();}
     };
     private final Runnable pulse=new Runnable(){@Override public void run(){refresh();if(visible)handler.postDelayed(this,1000);}};
@@ -48,31 +48,30 @@ public final class MainActivity extends Activity {
         super.onCreate(saved);store=new RunStore(this);
         SharedPreferences prefs=UpdateChecker.preferences(this);
         if(prefs.getInt("updateUiVersion",0)<6)prefs.edit().remove("updateStatus").remove("systemVoice").putInt("updateUiVersion",6).apply();
-        if(saved!=null){pendingInstall=saved.getBoolean("pendingInstall");restoreDownload=saved.getBoolean("downloadOpen");pendingStart=saved.getBoolean("pendingStart");launchCheck=saved.getBoolean("launchCheck",false);historyDays=saved.getInt("historyDays",7);historyMode=saved.getInt("historyMode",0);}
+        if(saved!=null){pendingInstall=saved.getBoolean("pendingInstall");returnPage=saved.getString("returnPage","home");pendingStart=saved.getBoolean("pendingStart");launchCheck=saved.getBoolean("launchCheck",false);historyDays=saved.getInt("historyDays",7);historyMode=saved.getInt("historyMode",0);}
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(Build.VERSION.SDK_INT>=27?BG:GREEN);
         if(Build.VERSION.SDK_INT>=27)getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
-        root=new FrameLayout(this);root.setBackgroundColor(BG);
-        root.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets.consumeSystemWindowInsets();});
-        setContentView(root);root.requestApplyInsets();showHome();
+        LinearLayout app=new LinearLayout(this);app.setOrientation(LinearLayout.VERTICAL);app.setBackgroundColor(BG);
+        root=new FrameLayout(this);root.setBackgroundColor(BG);app.addView(root,new LinearLayout.LayoutParams(-1,0,1));
+        notice=text("",14,GREEN,false);notice.setPadding(dp(20),dp(10),dp(20),dp(12));notice.setGravity(Gravity.CENTER);notice.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);notice.setVisibility(View.GONE);app.addView(notice,new LinearLayout.LayoutParams(-1,-2));
+        app.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets.consumeSystemWindowInsets();});
+        setContentView(app);app.requestApplyInsets();showHome();
         if(saved!=null)try{
-            RunSession restored=null;
-            for(RunSession s:store.history()){if(s.id.equals(saved.getString("exportId")))export=s;if(s.id.equals(saved.getString("detailId")))restored=s;}
-            if("history".equals(saved.getString("page"))||"detail".equals(saved.getString("page"))){showHistory();if(restored!=null)showDetail(restored);}
-            else if("settings".equals(saved.getString("page")))showSettings();
+            for(RunSession run:store.history()){if(run.id.equals(saved.getString("exportId")))export=run;if(run.id.equals(saved.getString("detailId")))detail=run;}
+            restorePage=saved.getString("page","home");
         }catch(IOException e){toast(e.getMessage());}
         bound=bindService(new Intent(this,TrackingService.class),connection,BIND_AUTO_CREATE);
     }
-    @Override protected void onSaveInstanceState(Bundle state){super.onSaveInstanceState(state);state.putBoolean("pendingStart",pendingStart);state.putBoolean("pendingInstall",pendingInstall);state.putBoolean("downloadOpen",downloadDialog!=null&&downloadDialog.isShowing());state.putBoolean("launchCheck",launchCheck);state.putString("page",page);state.putInt("historyDays",historyDays);state.putInt("historyMode",historyMode);if(detail!=null)state.putString("detailId",detail.id);if(export!=null)state.putString("exportId",export.id);}
+    @Override protected void onSaveInstanceState(Bundle state){super.onSaveInstanceState(state);state.putBoolean("pendingStart",pendingStart);state.putBoolean("pendingInstall",pendingInstall);state.putString("returnPage",returnPage);state.putBoolean("launchCheck",launchCheck);state.putString("page",page);state.putInt("historyDays",historyDays);state.putInt("historyMode",historyMode);if(detail!=null)state.putString("detailId",detail.id);if(export!=null)state.putString("exportId",export.id);}
     @Override protected void onResume(){
         super.onResume();visible=true;
-        if((restoreDownload||UpdateDownload.busy())&&UpdateDownload.info!=null){restoreDownload=false;showDownload();}
         if(page.equals("settings")&&service!=null&&!running())service.resetVoice();
         handler.removeCallbacks(pulse);handler.post(pulse);UpdateJobService.schedule(this);
         if(launchCheck){launchCheck=false;handler.postDelayed(()->{if(!isDestroyed())UpdateChecker.check(this,false,(info,message)->{if(!isDestroyed())refresh();});},600);}
     }
     @Override protected void onPause(){visible=false;handler.removeCallbacks(pulse);super.onPause();}
     @Override protected void onStop(){launchCheck=true;super.onStop();}
-    @Override protected void onDestroy(){for(StyledDialog d:new ArrayList<>(dialogs))d.closeNow();handler.removeCallbacksAndMessages(null);if(bound)unbindService(connection);super.onDestroy();}
+    @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);if(bound)unbindService(connection);super.onDestroy();}
     private int dp(float value){return Math.round(value*getResources().getDisplayMetrics().density);}
     private GradientDrawable background(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private TextView text(String value,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(color);t.setFontFeatureSettings("tnum");if(bold)t.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));return t;}
@@ -80,8 +79,8 @@ public final class MainActivity extends Activity {
     private Button button(String title,boolean solid){Button b=new Button(this);b.setText(title);b.setAllCaps(false);b.setTextSize(17);b.setTextColor(solid?Color.WHITE:GREEN);b.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));b.setBackground(background(solid?GREEN:Color.rgb(229,234,222),18));b.setStateListAnimator(null);b.setMinHeight(dp(52));b.setMinimumHeight(dp(52));b.setPadding(dp(14),dp(10),dp(14),dp(10));Motion.press(b);return b;}
     private void installPage(View next){
         View previous=pageView;
-        for(int i=root.getChildCount()-1;i>=0;i--){View child=root.getChildAt(i);if(child!=previous&&child!=banner){child.animate().cancel();root.removeView(child);}}
-        pageView=next;root.addView(next,new FrameLayout.LayoutParams(-1,-1));if(banner!=null)banner.bringToFront();
+        for(int i=root.getChildCount()-1;i>=0;i--){View child=root.getChildAt(i);if(child!=previous){child.animate().cancel();root.removeView(child);}}
+        pageView=next;root.addView(next,new FrameLayout.LayoutParams(-1,-1));
         if(previous!=null){previous.animate().cancel();previous.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);previous.setEnabled(false);
             if(Motion.enabled())previous.animate().alpha(0).setDuration(140).withEndAction(()->root.removeView(previous)).start();else root.removeView(previous);}
         Motion.enter(next,0,dp(8));
@@ -98,10 +97,12 @@ public final class MainActivity extends Activity {
     private void weighted(LinearLayout parent,View child,float weight){parent.addView(child,new LinearLayout.LayoutParams(-1,0,weight));}
     private TextView homeMetric(LinearLayout row,String label,String value){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(12),dp(6),dp(12),dp(6));box.setBackground(background(Color.WHITE,18));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-1,1);p.setMargins(dp(3),0,dp(3),0);row.addView(box,p);weighted(box,fit(label,12,MUTED,false,1),1);TextView metric=fit(value,30,GREEN,true,1);weighted(box,metric,2);return metric;}
     private void showHome(){
+        boolean animateStart=page.equals("home")&&!homeExpanded&&service!=null&&service.session!=null&&service.session.active;
         page="home";timer=distance=pace=status=steps=null;route=null;detail=null;
+        List<View> entering=new ArrayList<>();
         homeExpanded=service!=null&&service.session!=null;
-        LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setPadding(dp(20),dp(8),dp(20),dp(8));
-        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);shell.addView(header,new LinearLayout.LayoutParams(-1,dp(48)));
+        LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setClipChildren(false);shell.setClipToPadding(false);shell.setPadding(dp(20),dp(8),dp(20),dp(8));
+        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);entering.add(header);shell.addView(header,new LinearLayout.LayoutParams(-1,dp(48)));
         header.addView(fit("轻跑",28,GREEN,true,1),new LinearLayout.LayoutParams(0,-1,1));
         ClockButton history=new ClockButton(this);header.addView(history,new LinearLayout.LayoutParams(dp(48),dp(48)));history.setOnClickListener(v->showHistory());
         settingsGear=new GearButton(this);header.addView(settingsGear,new LinearLayout.LayoutParams(dp(48),dp(48)));settingsGear.setOnClickListener(v->showSettings());
@@ -114,23 +115,23 @@ public final class MainActivity extends Activity {
             center.addView(primary,new FrameLayout.LayoutParams(size,size,Gravity.CENTER));
         }else{
             boolean wide=getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-            LinearLayout body=new LinearLayout(this);body.setOrientation(wide?LinearLayout.HORIZONTAL:LinearLayout.VERTICAL);weighted(shell,body,1);
-            LinearLayout metrics=new LinearLayout(this);metrics.setOrientation(LinearLayout.VERTICAL);metrics.setPadding(0,dp(6),wide?dp(12):0,dp(8));
+            LinearLayout body=new LinearLayout(this);body.setOrientation(wide?LinearLayout.HORIZONTAL:LinearLayout.VERTICAL);body.setClipChildren(false);body.setClipToPadding(false);weighted(shell,body,1);
+            LinearLayout metrics=new LinearLayout(this);metrics.setOrientation(LinearLayout.VERTICAL);metrics.setClipChildren(false);metrics.setClipToPadding(false);metrics.setPadding(0,dp(6),wide?dp(12):0,dp(8));
             if(wide)body.addView(metrics,new LinearLayout.LayoutParams(0,-1,1));else weighted(body,metrics,1);
             status=fit("●  正在定位",13,GREEN,true,2);weighted(metrics,status,1);
             timer=fit("00:00",52,GREEN,true,1);weighted(metrics,timer,2.3f);weighted(metrics,fit("运动时长",12,MUTED,false,1),.6f);
             LinearLayout statRow=new LinearLayout(this);weighted(metrics,statRow,2.1f);distance=homeMetric(statRow,"距离 · 公里","0.00");pace=homeMetric(statRow,"平均配速 · /公里","—");
             steps=fit("本次步数 · —",15,GREEN,true,2);steps.setPadding(dp(5),dp(4),0,0);weighted(metrics,steps,1.3f);
-            LinearLayout track=new LinearLayout(this);track.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout track=new LinearLayout(this);track.setOrientation(LinearLayout.VERTICAL);track.setClipChildren(false);track.setClipToPadding(false);
             if(wide)body.addView(track,new LinearLayout.LayoutParams(0,-1,1));else weighted(body,track,1.25f);
             route=new RouteView(this);weighted(track,route,1);
-            LinearLayout controls=new LinearLayout(this);controls.setOrientation(LinearLayout.VERTICAL);controls.setPadding(0,dp(8),0,0);(wide?track:shell).addView(controls,new LinearLayout.LayoutParams(-1,-2));
+            LinearLayout controls=new LinearLayout(this);controls.setOrientation(LinearLayout.VERTICAL);controls.setClipChildren(false);controls.setClipToPadding(false);controls.setPadding(0,dp(8),0,0);(wide?track:shell).addView(controls,new LinearLayout.LayoutParams(-1,-2));
             controls.addView(primary,new LinearLayout.LayoutParams(-1,dp(52)));
             Button finish=button("结束并保存",false);finish.setMinHeight(0);finish.setMinimumHeight(0);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(48));p.topMargin=dp(8);controls.addView(finish,p);finish.setOnClickListener(v->finishDialog());
-            Motion.enter(metrics,40,dp(12));Motion.enter(track,90,dp(16));Motion.enter(controls,130,dp(10));
+            for(int i=0;i<metrics.getChildCount();i++)entering.add(metrics.getChildAt(i));entering.add(route);entering.add(primary);entering.add(finish);
         }
         TextView help=fit("离线记录 · 无广告 · 使用与隐私说明",11,MUTED,false,1);help.setGravity(Gravity.CENTER);shell.addView(help,new LinearLayout.LayoutParams(-1,dp(32)));help.setOnClickListener(v->help());
-        installPage(shell);refresh();
+        installPage(shell);entering.add(help);if(animateStart){for(int i=0;i<entering.size();i++)Motion.rise(entering.get(i),root,i*45L);}refresh();
     }
     private void refresh(){
         renderDownload();
@@ -144,8 +145,30 @@ public final class MainActivity extends Activity {
         status.setText(service.error!=null?"●  "+service.error:s.active?"●  "+service.gpsStatus:s.interrupted?"●  记录已恢复 · 点继续跑重新定位":"●  已暂停");
         steps.setText("本次步数 · "+(s.stepsRecorded?String.format(Locale.CHINA,"%,d 步",s.steps):"—")+(!"正在计步".equals(service.stepStatus)?"\n"+service.stepStatus:""));
     }
-    private StyledDialog modal(String title,boolean large){StyledDialog d=new StyledDialog(this,title,large);dialogs.add(d);d.setOnDismissListener(x->{dialogs.remove(d);if(d==detailDialog){detailDialog=null;detail=null;}});return d;}
-    private void prompt(String title,String message,String action,Runnable click){StyledDialog d=modal(title,false);d.message(message);d.action(action,true,click);d.action("稍后",false,null);d.show();}
+    private void prompt(String key,String title,String message,String action,Runnable click){
+        returnPage=page;page=key;base();header(title,"返回",this::backPage);gap(22);content.addView(text(message,16,MUTED,false));gap(24);
+        Button yes=button(action,true);content.addView(yes);yes.setOnClickListener(v->click.run());gap(12);Button later=button("稍后",false);content.addView(later);later.setOnClickListener(v->backPage());
+    }
+    private void locationPage(){prompt("location","开启手机定位","轻跑需要 GPS 记录轨迹，请开启定位后再次点开跑。","去开启",()->startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)));}
+    private void permissionPage(){prompt("permission","需要精确位置","跑步轨迹需要精确位置。请在权限设置中选择“使用期间允许”，并开启“精确位置”。","去设置",()->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));}
+    private void openPage(String target){
+        switch(target){
+            case "history":showHistory();break;case "detail":if(detail!=null)showDetail(detail);else showHistory();break;
+            case "settings":showSettings();break;case "finish":finishDialog();break;case "discard":discardPage();break;
+            case "delete":if(detail!=null)deletePage(detail);else showHistory();break;case "help":help();break;
+            case "location":locationPage();returnPage="home";break;case "permission":permissionPage();returnPage="home";break;
+            case "update":UpdateInfo info=UpdateChecker.cached(this);if(info!=null)showUpdate(info);else showSettings();break;
+            case "download":if(UpdateDownload.info!=null)showDownload();else showSettings();break;default:showHome();
+        }
+    }
+    private void backPage(){
+        switch(page){
+            case "detail":showHistory();break;case "delete":if(detail!=null)showDetail(detail);else showHistory();break;
+            case "discard":finishDialog();break;case "download":case "update":showSettings();break;
+            case "location":case "permission":openPage(returnPage.equals(page)?"home":returnPage);break;
+            default:showHome();
+        }
+    }
     private void requestStart(){
         if(service==null)return;
         if(UpdateDownload.busy()){toast("请等待更新下载完成或取消下载");return;}
@@ -154,16 +177,20 @@ public final class MainActivity extends Activity {
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED&&!getPreferences(MODE_PRIVATE).getBoolean("notificationAsked",false)){pendingStart=true;getPreferences(MODE_PRIVATE).edit().putBoolean("notificationAsked",true).apply();requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},101);return;}
         if(Build.VERSION.SDK_INT>=29&&checkSelfPermission(Manifest.permission.ACTIVITY_RECOGNITION)!=PackageManager.PERMISSION_GRANTED&&!getPreferences(MODE_PRIVATE).getBoolean("stepsAsked",false)){pendingStart=true;getPreferences(MODE_PRIVATE).edit().putBoolean("stepsAsked",true).apply();requestPermissions(new String[]{Manifest.permission.ACTIVITY_RECOGNITION},102);return;}
         LocationManager lm=(LocationManager)getSystemService(LOCATION_SERVICE);
-        if(!lm.isProviderEnabled(LocationManager.GPS_PROVIDER)){prompt("开启手机定位","轻跑需要 GPS 记录轨迹，请开启定位后再次点开跑。","去开启",()->startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)));return;}
+        if(!lm.isProviderEnabled(LocationManager.GPS_PROVIDER)){locationPage();return;}
         pendingStart=false;startForegroundService(new Intent(this,TrackingService.class).setAction(TrackingService.START));handler.postDelayed(this::refresh,150);
     }
-    @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(code==100&&checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED){pendingStart=false;prompt("需要精确位置","跑步轨迹需要精确位置。请在权限设置中选择“使用期间允许”，并开启“精确位置”。","去设置",()->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));}else if(pendingStart)handler.postDelayed(this::requestStart,250);}
+    @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(code==100&&checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED){pendingStart=false;permissionPage();}else if(pendingStart)handler.postDelayed(this::requestStart,250);}
     private void finishDialog(){
-        if(service==null||service.session==null)return;
-        StyledDialog d=modal("结束这次跑步？",false);d.message("轨迹与运动数据将保存在手机里。");
-        d.action("结束并保存",true,()->{if(service.finish()){showHistory();toast("已保存到历史记录");}else{toast(service.error);refresh();}});
-        d.action("放弃记录",false,()->{StyledDialog confirm=modal("放弃这次记录？",false);confirm.message("这次轨迹将被删除。");confirm.action("放弃",true,()->{service.discard();refresh();});confirm.action("保留",false,null);confirm.show();});
-        d.action("继续保留",false,null);d.show();
+        if(service==null||service.session==null){showHome();return;}
+        page="finish";base();header("结束这次跑步？","返回",this::showHome);gap(22);content.addView(text("轨迹与运动数据将保存在手机里，保存后直接查看本次详情。",16,MUTED,false));gap(24);
+        Button save=button("结束并保存",true);content.addView(save);save.setOnClickListener(v->{RunSession completed=service.session;if(completed==null){showHome();return;}if(service.finish()){showDetail(completed);toast("本次跑步已保存");}else toast(service.error);});gap(12);
+        Button discard=button("放弃记录",false);content.addView(discard);discard.setOnClickListener(v->discardPage());gap(12);Button keep=button("继续保留",false);content.addView(keep);keep.setOnClickListener(v->showHome());
+    }
+    private void discardPage(){
+        if(service==null||service.session==null){showHome();return;}
+        page="discard";base();header("放弃这次记录？","返回",this::finishDialog);gap(22);content.addView(text("这次轨迹将被删除。",16,MUTED,false));gap(24);
+        Button confirm=button("放弃",true);content.addView(confirm);confirm.setOnClickListener(v->{service.discard();showHome();});gap(12);Button keep=button("保留",false);content.addView(keep);keep.setOnClickListener(v->finishDialog());
     }
     private void showHistory(){
         page="history";base();header("我的跑步","返回",this::showHome);gap(16);
@@ -172,18 +199,17 @@ public final class MainActivity extends Activity {
             LinearLayout periods=new LinearLayout(this);content.addView(periods);Button seven=selector(periods,"最近 7 天"),thirty=selector(periods,"最近 30 天");gap(10);
             LinearLayout modes=new LinearLayout(this);content.addView(modes);Button both=selector(modes,"距离 + 步数"),onlyDistance=selector(modes,"仅距离"),onlySteps=selector(modes,"仅步数");gap(18);
             TextView total=text("",25,GREEN,true),totalSteps=text("",15,GREEN,true),totalTime=text("",13,MUTED,false);content.addView(total);gap(6);content.addView(totalSteps);gap(6);content.addView(totalTime);gap(14);
-            HorizontalScrollView horizontal=new HorizontalScrollView(this);horizontal.setFillViewport(true);horizontal.setHorizontalScrollBarEnabled(false);
-            DailyChartView chart=new DailyChartView(this);horizontal.addView(chart,new HorizontalScrollView.LayoutParams(-1,dp(248)));content.addView(horizontal,new LinearLayout.LayoutParams(-1,dp(248)));gap(12);
+            DailyChartView chart=new DailyChartView(this);content.addView(chart,new LinearLayout.LayoutParams(-1,dp(264)));gap(12);
             TextView chosen=text("",13,GREEN,false);chosen.setMinHeight(dp(44));content.addView(chosen);
             chart.setSelectionListener(day->chosen.setText(day.date.getMonthValue()+" 月 "+day.date.getDayOfMonth()+" 日 · "+day.runs+" 次运动\n"+Format.distance(day.meters)+" 公里 · "+day.stepLabel()+" · "+Format.duration(day.duration)));
             Runnable redraw=()->{
                 HistorySummary summary=new HistorySummary(runs,LocalDate.now(),historyDays,ZoneId.systemDefault());
                 total.setText(Format.distance(summary.meters)+" 公里");totalSteps.setText(summary.stepLabel());totalTime.setText(summary.runs+" 次运动 · "+Format.duration(summary.duration)+" 运动时长");
                 selected(seven,historyDays==7);selected(thirty,historyDays==30);selected(both,historyMode==0);selected(onlyDistance,historyMode==2);selected(onlySteps,historyMode==1);
-                chart.setData(summary,historyMode);horizontal.post(()->horizontal.fullScroll(View.FOCUS_RIGHT));
+                chart.setData(summary,historyMode);
             };
             seven.setOnClickListener(v->{historyDays=7;redraw.run();});thirty.setOnClickListener(v->{historyDays=30;redraw.run();});both.setOnClickListener(v->{historyMode=0;redraw.run();});onlyDistance.setOnClickListener(v->{historyMode=2;redraw.run();});onlySteps.setOnClickListener(v->{historyMode=1;redraw.run();});redraw.run();
-            gap(8);content.addView(text("仅汇总轻跑记录，按开始日期归入当天。≥ 表示部分记录没有步数；30 天视图可左右滑动。",12,MUTED,false));gap(26);content.addView(text("所有记录",21,GREEN,true));gap(14);
+            gap(8);content.addView(text("仅汇总轻跑记录，按开始日期归入当天。≥ 表示部分记录没有步数。双指标采用各自刻度，点击日期查看准确数值。",12,MUTED,false));gap(26);content.addView(text("所有记录",21,GREEN,true));gap(14);
             if(runs.isEmpty()){content.addView(text("还没有跑步记录",18,GREEN,true));gap(8);content.addView(text("点开跑，记录你的第一段路。",14,MUTED,false));}
             SimpleDateFormat date=new SimpleDateFormat("MM月dd日  HH:mm",Locale.CHINA);
             for(RunSession s:runs){LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(18),dp(18),dp(18),dp(18));card.setBackground(background(Color.WHITE,22));card.addView(text(date.format(new Date(s.startedAt)),14,MUTED,false));TextView value=text(Format.distance(s.distanceM)+" 公里",26,GREEN,true);value.setPadding(0,dp(8),0,dp(6));card.addView(value);card.addView(text(Format.duration(s.accumulatedMs)+"  ·  "+Format.pace(s.distanceM,s.accumulatedMs)+" /公里",14,MUTED,false));card.addView(text(s.stepsRecorded?String.format(Locale.CHINA,"%,d 步",s.steps):"步数未记录",13,MUTED,false));card.setContentDescription(date.format(new Date(s.startedAt))+" 跑步记录");card.setOnClickListener(v->showDetail(s));card.setFocusable(true);Motion.press(card);content.addView(card,new LinearLayout.LayoutParams(-1,-2));gap(12);}
@@ -193,8 +219,7 @@ public final class MainActivity extends Activity {
     private void selected(Button b,boolean active){b.setSelected(active);b.setTextColor(active?Color.WHITE:GREEN);b.setBackground(background(active?GREEN:Color.rgb(229,234,222),16));}
     private void detailPair(LinearLayout body,String left,String right){LinearLayout row=new LinearLayout(this);row.setPadding(dp(14),dp(12),dp(14),dp(12));row.setBackground(background(Color.WHITE,18));TextView a=text(left,13,MUTED,false),b=text(right,15,GREEN,true);row.addView(a,new LinearLayout.LayoutParams(0,-2,1));b.setGravity(Gravity.END);row.addView(b,new LinearLayout.LayoutParams(0,-2,1));body.addView(row);space(body,6);}
     private void showDetail(RunSession s){
-        if(detailDialog!=null)detailDialog.closeNow();
-        detail=s;StyledDialog d=modal("跑步记录",true);detailDialog=d;LinearLayout body=d.body;RunAnalysis a=new RunAnalysis(s);
+        detail=s;page="detail";base();header("跑步记录","返回",this::showHistory);gap(18);LinearLayout body=content;RunAnalysis a=new RunAnalysis(s);
         body.addView(text(new SimpleDateFormat("yyyy年MM月dd日 HH:mm",Locale.CHINA).format(new Date(s.startedAt)),13,MUTED,false));space(body,14);
         body.addView(text(Format.distance(s.distanceM)+" 公里",36,GREEN,true));space(body,8);
         body.addView(text(Format.duration(s.accumulatedMs)+"  ·  "+Format.pace(s.distanceM,s.accumulatedMs)+" /公里",18,GREEN,true));space(body,8);
@@ -212,10 +237,14 @@ public final class MainActivity extends Activity {
         SimpleDateFormat clock=new SimpleDateFormat("MM-dd HH:mm:ss",Locale.CHINA);detailPair(body,"开始时间",clock.format(new Date(s.startedAt)));detailPair(body,"结束时间",s.endedAt>0?clock.format(new Date(s.endedAt)):"未记录");
         space(body,6);body.addView(text("速度变化依据相邻有效定位点估算；轨迹分段与超过 30 秒的间断不连线。暂停 / 中断时长为起止时间减去运动时长。步频、步长仅在实际记录步数后计算。距离为 GPS 估算值，精度数值越小越好。",12,MUTED,false));space(body,16);
         Button save=button("导出 GPX 轨迹",true);body.addView(save,new LinearLayout.LayoutParams(-1,-2));save.setEnabled(!s.points.isEmpty());save.setOnClickListener(v->{export=s;Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/gpx+xml");i.putExtra(Intent.EXTRA_TITLE,"轻跑_"+new SimpleDateFormat("yyyyMMdd_HHmm",Locale.US).format(new Date(s.startedAt))+".gpx");startActivityForResult(i,200);});space(body,10);
-        Button delete=button("删除这次记录",false);body.addView(delete,new LinearLayout.LayoutParams(-1,-2));delete.setOnClickListener(v->{StyledDialog confirm=modal("删除记录？",false);confirm.message("删除后无法恢复。");confirm.action("删除",true,()->{store.delete(s);d.closeNow();showHistory();});confirm.action("保留",false,null);confirm.show();});d.show();
+        Button delete=button("删除这次记录",false);body.addView(delete,new LinearLayout.LayoutParams(-1,-2));delete.setOnClickListener(v->deletePage(s));
+    }
+    private void deletePage(RunSession s){
+        detail=s;page="delete";base();header("删除记录？","返回",()->showDetail(s));gap(22);content.addView(text("删除后无法恢复。",16,MUTED,false));gap(24);
+        Button remove=button("删除",true);content.addView(remove);remove.setOnClickListener(v->{store.delete(s);detail=null;showHistory();toast("记录已删除");});gap(12);Button keep=button("保留",false);content.addView(keep);keep.setOnClickListener(v->showDetail(s));
     }
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==300&&pendingInstall){pendingInstall=false;if(getPackageManager().canRequestPackageInstalls())installUpdate();else toast("未允许安装，可稍后点击安装更新");}if(request==200&&result==RESULT_OK&&data!=null&&data.getData()!=null&&export!=null){try(OutputStream stream=getContentResolver().openOutputStream(data.getData(),"wt")){if(stream==null)throw new IOException("无法打开导出文件");RunStore.gpx(export,stream);toast("GPX 轨迹已导出");}catch(IOException e){toast("导出失败："+e.getMessage());}}}
-    private void help(){StyledDialog d=modal("轻跑 · 简单地跑",false);d.message("1. 在室外开启手机定位，授予精确位置权限后点开跑。首次定位可能需要几十秒。\n\n2. 锁屏后会继续记录。OPPO 等手机请在应用电池设置中允许后台活动；不要强行停止应用。\n\n3. 暂停期间不计时、不计距离、不累计步数。定位间断超过 30 秒会分段。距离是 GPS 估算值，弱信号可能少记。\n\n4. 步数来自手机传感器，需要身体活动权限；无传感器时仍可记录轨迹。传感器延迟、暂停或中断可能少记步数。旧记录不会凭距离补算步数。\n\n5. 整公里播报使用系统中文音色，可在设置中试听或关闭。是否需要联网由系统语音引擎决定。\n\n6. 轨迹图不含街道底图。运动记录和步数只存本机，不收集账号、不上传轨迹。检查更新和主动下载会联网，服务器会收到普通连接信息（包括 IP），不发送位置或设备标识。系统语音引擎可能联网处理播报文字（公里、用时、配速），请以系统设置为准。下载在应用内完成并校验，安装需要系统确认。\n\n7. 每次打开应用时自动检查更新，跑步进行中跳过检查；也可以关闭自动检查。异常中断后恢复为暂停，通常最多丢失约 5 秒未保存数据。覆盖更新保留记录；卸载会删除，重要记录请先导出 GPX。");d.action("知道了",true,null);d.show();}
+    private void help(){page="help";base();header("使用与隐私说明","返回",this::showHome);gap(18);content.addView(text("1. 在室外开启手机定位，授予精确位置权限后点开跑。首次定位可能需要几十秒。\n\n2. 锁屏后会继续记录。OPPO 等手机请在应用电池设置中允许后台活动；不要强行停止应用。\n\n3. 暂停期间不计时、不计距离、不累计步数。定位间断超过 30 秒会分段。距离是 GPS 估算值，弱信号可能少记。\n\n4. 步数来自手机传感器，需要身体活动权限；无传感器时仍可记录轨迹。传感器延迟、暂停或中断可能少记步数。旧记录不会凭距离补算步数。\n\n5. 整公里播报使用系统中文音色，可在设置中试听或关闭。是否需要联网由系统语音引擎决定。\n\n6. 轨迹图不含街道底图。运动记录和步数只存本机，不收集账号、不上传轨迹。检查更新和主动下载会联网，服务器会收到普通连接信息（包括 IP），不发送位置或设备标识。系统语音引擎可能联网处理播报文字（公里、用时、配速），请以系统设置为准。下载在应用内完成并校验，安装需要系统确认。\n\n7. 每次打开应用时自动检查更新，跑步进行中跳过检查；也可以关闭自动检查。异常中断后恢复为暂停，通常最多丢失约 5 秒未保存数据。覆盖更新保留记录；卸载会删除，重要记录请先导出 GPX。",15,MUTED,false));gap(20);Button done=button("知道了",true);content.addView(done);done.setOnClickListener(v->showHome());}
     private boolean running(){return service!=null&&service.session!=null&&service.session.active;}
     private void toggle(String title,boolean checked,java.util.function.Consumer<Boolean> change){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);content.addView(row,new LinearLayout.LayoutParams(-1,dp(52)));row.addView(text(title,17,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));row.addView(new ToggleButton(this,title,checked,change),new LinearLayout.LayoutParams(dp(56),dp(48)));}
     private void showSettings(){
@@ -230,23 +259,21 @@ public final class MainActivity extends Activity {
         Button check=button("立即检查更新",true);content.addView(check);check.setOnClickListener(v->{if(running()){toast("请结束跑步后检查更新");return;}if(UpdateChecker.busy()){toast("正在检查，请稍等");return;}UpdateChecker.check(this,true,(info,message)->{if(isFinishing()||isDestroyed())return;refresh();if(!visible||running())return;if(info!=null&&info.code>UpdateChecker.installedCode(this))showUpdate(info);else toast(message);});refresh();});gap(12);
         download=button("查看新版",false);content.addView(download);download.setOnClickListener(v->{UpdateInfo info=UpdateChecker.cached(this);if(info!=null)showUpdate(info);});gap(12);
         Button transfer=button("查看下载进度",false);content.addView(transfer);transfer.setVisibility(UpdateDownload.info==null?View.GONE:View.VISIBLE);transfer.setOnClickListener(v->showDownload());gap(20);
-        content.addView(text("当前版本 1.3.0 · Android 8.0 及以上",13,MUTED,false));gap(12);Button permission=button("身体活动权限设置",false);content.addView(permission);permission.setOnClickListener(v->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));refresh();
+        content.addView(text("当前版本 1.3.1 · Android 8.0 及以上",13,MUTED,false));gap(12);Button permission=button("身体活动权限设置",false);content.addView(permission);permission.setOnClickListener(v->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));refresh();
     }
-    private void showUpdate(UpdateInfo info){if(running()){toast("请结束跑步后更新，避免中断记录");return;}if(UpdateDownload.busy()){showDownload();return;}prompt("轻跑 "+info.version,info.notes+"\n\n更新将在应用内下载。安装时请直接覆盖，不要先卸载。","下载更新",()->{UpdateDownload.start(this,info);showDownload();});}
+    private void showUpdate(UpdateInfo info){if(running()){toast("请结束跑步后更新，避免中断记录");return;}if(UpdateDownload.busy()){showDownload();return;}prompt("update","轻跑 "+info.version,info.notes+"\n\n更新将在应用内下载。安装时请直接覆盖，不要先卸载。","下载更新",()->{UpdateDownload.start(this,info);showDownload();});}
     private void showDownload(){
-        if(UpdateDownload.info==null||isFinishing()||isDestroyed())return;if(downloadDialog!=null&&downloadDialog.isShowing()){renderDownload();return;}
-        downloadDialog=modal("更新 "+UpdateDownload.info.version,false);downloadMessage=text("",14,GREEN,false);downloadDialog.body.addView(downloadMessage);
-        downloadProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);downloadProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(GREEN));downloadProgress.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(GREEN));downloadProgress.setMax(100);downloadDialog.body.addView(downloadProgress,new LinearLayout.LayoutParams(-1,dp(32)));
-        downloadAction=downloadDialog.action("安装更新",true,null);downloadAction.setOnClickListener(v->{if("ready".equals(UpdateDownload.state))installUpdate();else if(!UpdateDownload.busy()){UpdateDownload.start(this,UpdateDownload.info);renderDownload();}});
-        downloadCancel=downloadDialog.action("取消下载",false,null);downloadCancel.setOnClickListener(v->{UpdateDownload.cancel();renderDownload();});downloadDialog.action("关闭",false,null);downloadDialog.show();renderDownload();
+        if(UpdateDownload.info==null||isFinishing()||isDestroyed())return;
+        page="download";base();header("更新 "+UpdateDownload.info.version,"返回",this::showSettings);gap(24);downloadMessage=text("",15,GREEN,false);content.addView(downloadMessage);gap(16);
+        downloadProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);downloadProgress.setProgressTintList(android.content.res.ColorStateList.valueOf(GREEN));downloadProgress.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(GREEN));downloadProgress.setMax(100);content.addView(downloadProgress,new LinearLayout.LayoutParams(-1,dp(32)));gap(20);
+        downloadAction=button("安装更新",true);content.addView(downloadAction);downloadAction.setOnClickListener(v->{if("ready".equals(UpdateDownload.state))installUpdate();else if(!UpdateDownload.busy()){UpdateDownload.start(this,UpdateDownload.info);renderDownload();}});gap(12);
+        downloadCancel=button("取消下载",false);content.addView(downloadCancel);downloadCancel.setOnClickListener(v->{UpdateDownload.cancel();renderDownload();});gap(16);content.addView(text("返回其他页面不会取消下载。下载完成并校验后，由系统确认安装。",13,MUTED,false));renderDownload();
     }
-    private void renderDownload(){if(downloadDialog==null||!downloadDialog.isShowing())return;boolean busy=UpdateDownload.busy(),ready="ready".equals(UpdateDownload.state);long total=UpdateDownload.total,received=UpdateDownload.received;downloadProgress.setIndeterminate(total<=0&&busy);downloadProgress.setProgress(total>0?(int)Math.min(100,received*100/total):0);downloadMessage.setText(UpdateDownload.message+(total>0?String.format(Locale.CHINA,"\n%d%% · %.1f / %.1f KB",Math.min(100,received*100/total),received/1024d,total/1024d):""));downloadAction.setEnabled(!busy);downloadAction.setText(ready?"安装更新":"重试下载");downloadCancel.setVisibility(busy?View.VISIBLE:View.GONE);}
+    private void renderDownload(){if(!page.equals("download")||downloadProgress==null)return;boolean busy=UpdateDownload.busy(),ready="ready".equals(UpdateDownload.state);long total=UpdateDownload.total,received=UpdateDownload.received;downloadProgress.setIndeterminate(total<=0&&busy);downloadProgress.setProgress(total>0?(int)Math.min(100,received*100/total):0);downloadMessage.setText(UpdateDownload.message+(total>0?String.format(Locale.CHINA,"\n%d%% · %.1f / %.1f KB",Math.min(100,received*100/total),received/1024d,total/1024d):""));downloadAction.setEnabled(!busy);downloadAction.setText(ready?"安装更新":"重试下载");downloadCancel.setVisibility(busy?View.VISIBLE:View.GONE);}
     static Intent installIntent(Context context){Uri uri=UpdateApkProvider.uri(context);Intent intent=new Intent(Intent.ACTION_VIEW).setDataAndType(uri,UpdateApkProvider.MIME).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);intent.setClipData(ClipData.newRawUri("update",uri));return intent;}
     private void installUpdate(){if(running()){toast("请结束跑步后安装更新");return;}if(!"ready".equals(UpdateDownload.state)||!UpdateDownload.apk(this).isFile()){toast("请先完成下载");return;}try{if(!getPackageManager().canRequestPackageInstalls()){pendingInstall=true;toast("请允许轻跑安装应用，返回后继续安装");startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName())),300);return;}pendingInstall=false;startActivity(installIntent(this));}catch(ActivityNotFoundException|SecurityException e){pendingInstall=false;toast("无法打开系统安装器，请检查安装应用权限");}}
     private void toast(String value){
-        if(root==null||isFinishing()||isDestroyed())return;if(banner!=null){banner.animate().cancel();root.removeView(banner);}
-        TextView message=text(value==null?"操作未完成":value,14,Color.WHITE,false);message.setPadding(dp(18),dp(14),dp(18),dp(14));message.setBackground(background(GREEN,18));message.setGravity(Gravity.CENTER);message.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);p.setMargins(dp(20),0,dp(20),dp(14));banner=message;root.addView(message,p);Motion.enter(message,0,dp(8));handler.postDelayed(()->{if(banner==message){message.animate().alpha(0).setDuration(Motion.enabled()?180:0).withEndAction(()->{root.removeView(message);if(banner==message)banner=null;}).start();}},3200);
+        if(notice==null||isFinishing()||isDestroyed())return;handler.removeCallbacks(hideNotice);notice.setText(value==null?"操作未完成":value);notice.setVisibility(View.VISIBLE);handler.postDelayed(hideNotice,4000);
     }
-    @Override public void onBackPressed(){if(detailDialog!=null&&detailDialog.isShowing())detailDialog.dismiss();else if(page.equals("history")||page.equals("settings"))showHome();else super.onBackPressed();}
+    @Override public void onBackPressed(){if(!page.equals("home"))backPage();else super.onBackPressed();}
 }

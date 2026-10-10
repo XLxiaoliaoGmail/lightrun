@@ -72,6 +72,8 @@ Expect '记录已恢复'
 Expect '继续跑'
 Tap '结束并保存'
 Tap '结束并保存'
+Expect '跑步记录'
+Tap '返回'
 Expect '我的跑步'
 # Saved record is below the daily chart.
 ScrollToText '0.01 公里'

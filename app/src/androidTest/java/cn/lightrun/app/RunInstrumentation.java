@@ -94,7 +94,9 @@ public final class RunInstrumentation extends Instrumentation {
         new RunStore(context).checkpoint(service.session,SystemClock.elapsedRealtime());
         restored=new RunStore(context).restore();check(restored.interrupted&&!restored.active,"active checkpoint becomes paused on recovery");
         final boolean[] saved={false};String id=service.session.id;
-        runOnMainSync(()->saved[0]=service.finish());check(saved[0]&&service.session==null,"finish saves and clears active session");
+        runOnMainSync(()->{clickLabel(activity.findViewById(android.R.id.content),"结束并保存");clickLabel(activity.findViewById(android.R.id.content),"结束并保存");saved[0]=service.session==null;});
+        check(saved[0]&&service.session==null,"finish saves and clears active session");Thread.sleep(600);waitForIdleSync();
+        runOnMainSync(()->{check(views(activity.findViewById(android.R.id.content)).stream().anyMatch(v->v instanceof TextView&&"跑步记录".contentEquals(((TextView)v).getText())),"save opens the completed run detail immediately");activity.onBackPressed();activity.onBackPressed();});Thread.sleep(500);waitForIdleSync();
         RunStore store=new RunStore(context);List<RunSession> history=store.history();RunSession savedRun=null;
         for(RunSession s:history)if(s.id.equals(id))savedRun=s;
         check(savedRun!=null&&savedRun.endedAt>0,"history save");check(store.restore()==null,"saved current removed");
@@ -272,7 +274,7 @@ public final class RunInstrumentation extends Instrumentation {
         check("content".equals(install.getData().getScheme())&&UpdateApkProvider.MIME.equals(install.getType())&&(install.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION)!=0,"installer opens content APK with read permission");
         check(install.getClipData()!=null&&uri.equals(install.getClipData().getItemAt(0).getUri()),"installer URI grant survives intent forwarding");apk.delete();
     }
-    private List<View> views(View root){List<View> result=new ArrayList<>();result.add(root);if(root instanceof ViewGroup){ViewGroup group=(ViewGroup)root;for(int i=0;i<group.getChildCount();i++)result.addAll(views(group.getChildAt(i)));}return result;}
+    private List<View> views(View root){List<View> result=new ArrayList<>();if(root.getImportantForAccessibility()==View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS)return result;result.add(root);if(root instanceof ViewGroup){ViewGroup group=(ViewGroup)root;for(int i=0;i<group.getChildCount();i++)result.addAll(views(group.getChildAt(i)));}return result;}
     private void clickLabel(View root,String label){for(View v:views(root))if(v instanceof TextView&&label.contentEquals(((TextView)v).getText())){v.performClick();return;}throw new AssertionError("Missing button: "+label);}
     private void historyUiTests() throws Exception {
         runOnMainSync(()->{for(View v:views(activity.findViewById(android.R.id.content)))if(v instanceof ClockButton){v.performClick();break;}});Thread.sleep(500);waitForIdleSync();
@@ -280,21 +282,36 @@ public final class RunInstrumentation extends Instrumentation {
             View root=activity.findViewById(android.R.id.content);DailyChartView chart=null;View card=null;
             for(View v:views(root)){if(v instanceof DailyChartView)chart=(DailyChartView)v;if(v.isClickable()&&v.getContentDescription()!=null&&v.getContentDescription().toString().endsWith("跑步记录"))card=v;}
             check(chart!=null&&chart.getContentDescription().toString().contains("最近7天"),"history defaults to seven day chart");
+            check(views(root).stream().noneMatch(v->v instanceof HorizontalScrollView),"history has no horizontal scroll container");
+            check(chart.getWidth()<=((View)chart.getParent()).getWidth(),"chart width fits history page");
             clickLabel(root,"最近 30 天");check(chart.getContentDescription().toString().contains("最近30天"),"thirty day selection");
             clickLabel(root,"仅步数");clickLabel(root,"仅距离");clickLabel(root,"距离 + 步数");clickLabel(root,"最近 7 天");
             check(card!=null,"history list follows chart");card.performClick();
         });Thread.sleep(500);waitForIdleSync();
-        runOnMainSync(()->{try{
-            Field field=MainActivity.class.getDeclaredField("detailDialog");field.setAccessible(true);StyledDialog dialog=(StyledDialog)field.get(activity);
-            check(dialog!=null&&dialog.isShowing(),"record opens app styled modal");
-            View decor=dialog.getWindow().getDecorView();android.graphics.Rect frame=new android.graphics.Rect();activity.getWindow().getDecorView().getWindowVisibleDisplayFrame(frame);
-            check(Math.abs(decor.getWidth()-activity.getResources().getDisplayMetrics().widthPixels*.9)<4,"detail is ninety percent screen width");
-            check(Math.abs(decor.getHeight()-frame.height()*.9)<4,"detail is ninety percent available screen height");
-            check(views(dialog.body).stream().filter(v->v instanceof RunGraphView).count()==3,"record has activity speed and precision graphs");
-            check(views(dialog.body).stream().anyMatch(v->v instanceof RouteView),"detail includes route");
-            check(views(dialog.body).stream().anyMatch(v->v instanceof TextView&&"平均步频".contentEquals(((TextView)v).getText())),"detail includes measured cadence");
-            dialog.closeNow();activity.onBackPressed();
-        }catch(ReflectiveOperationException e){throw new RuntimeException(e);}});Thread.sleep(400);waitForIdleSync();
+        runOnMainSync(()->{
+            View root=activity.findViewById(android.R.id.content);
+            check(views(root).stream().filter(v->v instanceof RunGraphView).count()==3,"full detail page has activity speed and precision graphs");
+            check(views(root).stream().anyMatch(v->v instanceof RouteView),"detail includes route");
+            check(views(root).stream().anyMatch(v->v instanceof TextView&&"平均步频".contentEquals(((TextView)v).getText())),"detail includes measured cadence");
+            check(views(root).stream().noneMatch(v->v instanceof DailyChartView),"detail replaces history rather than floating above it");
+            clickLabel(root,"删除这次记录");check(views(activity.findViewById(android.R.id.content)).stream().noneMatch(v->v instanceof RouteView),"delete confirmation is a separate page");
+            clickLabel(activity.findViewById(android.R.id.content),"保留");check(views(activity.findViewById(android.R.id.content)).stream().anyMatch(v->v instanceof RouteView),"cancel delete returns to detail");
+            activity.onBackPressed();activity.onBackPressed();
+        });Thread.sleep(500);waitForIdleSync();
+        for(int days:new int[]{7,30})for(int mode:new int[]{0,1,2})verifyChart(days,mode,240);
+    }
+    private void verifyChart(int count,int mode,int width) throws Exception {
+        DailyChartView[] chart={null};float density=activity.getResources().getDisplayMetrics().density;
+        java.time.LocalDate today=java.time.LocalDate.now();java.time.ZoneId zone=java.time.ZoneId.systemDefault();List<RunSession> fixture=new ArrayList<>();
+        for(int i=0;i<count;i++){RunSession run=new RunSession(today.minusDays(i).atStartOfDay(zone).toInstant().toEpochMilli());run.distanceM=20000;run.steps=1000;run.stepsRecorded=true;fixture.add(run);}
+        runOnMainSync(()->{chart[0]=new DailyChartView(activity);chart[0].setData(new HistorySummary(fixture,today,count,zone),mode);int w=Math.round(width*density),h=Math.round(264*density);chart[0].measure(View.MeasureSpec.makeMeasureSpec(w,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(h,View.MeasureSpec.EXACTLY));chart[0].layout(0,0,w,h);});
+        Thread.sleep(550);runOnMainSync(()->{
+            android.graphics.Bitmap image=android.graphics.Bitmap.createBitmap(chart[0].getWidth(),chart[0].getHeight(),android.graphics.Bitmap.Config.ARGB_8888);chart[0].draw(new android.graphics.Canvas(image));int green=0,gold=0,previous=0,y=Math.round(180*density);
+            for(int x=0;x<image.getWidth();x++){int color=image.getPixel(x,y),r=android.graphics.Color.red(color),g=android.graphics.Color.green(color),b=android.graphics.Color.blue(color);int kind=g>r+15&&g>b+8?1:r>g+15&&g>b+30?2:0;if(kind==1&&previous!=1)green++;if(kind==2&&previous!=2)gold++;previous=kind;}
+            check(green==(mode==1?0:count),count+" day distance bars all fit narrow viewport");check(gold==(mode==2?0:count),count+" day step bars all fit narrow viewport");image.recycle();
+            check(chart[0].getMinimumWidth()==0,"chart never demands horizontal overflow");
+            HistorySummary.Day[] chosen={null};chart[0].setSelectionListener(day->chosen[0]=day);long now=SystemClock.uptimeMillis();android.view.MotionEvent tap=android.view.MotionEvent.obtain(now,now,android.view.MotionEvent.ACTION_UP,0,80*density,0);chart[0].onTouchEvent(tap);tap.recycle();check(chosen[0].date.equals(today.minusDays(count-1)),"left edge selects first date");tap=android.view.MotionEvent.obtain(now,now,android.view.MotionEvent.ACTION_UP,chart[0].getWidth(),80*density,0);chart[0].onTouchEvent(tap);tap.recycle();check(chosen[0].date.equals(today),"right edge selects last date");
+        });
     }
     private void homeTests() throws Exception {
         runOnMainSync(()->{
