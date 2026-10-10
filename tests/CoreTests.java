@@ -59,6 +59,13 @@ public final class CoreTests {
         milestones.distanceM=3100;check(milestones.takeKilometerMilestone()==3,"later milestone");
         milestones.distanceM=5000;check(milestones.takeKilometerMilestone()==5,"large increment announces only latest");
         milestones.distanceM=Double.NaN;check(milestones.takeKilometerMilestone()==0,"invalid milestone distance");
+        RunSession completed=new RunSession(0);completed.resume(0);completed.distanceM=1005;
+        check(completed.pendingKilometerMilestone()==1&&completed.announcedKilometer==0,"queueing is not playback completion");
+        check(completed.pendingKilometerMilestone()==1,"failed playback leaves milestone pending");
+        completed.completeKilometerMilestone(2);check(completed.announcedKilometer==0,"future kilometer cannot be completed");
+        completed.completeKilometerMilestone(1);check(completed.pendingKilometerMilestone()==0,"completed playback prevents duplicates");
+        completed.distanceM=2005;completed.pause(10);completed.completeKilometerMilestone(2);
+        check(completed.announcedKilometer==1,"late completion after pause cannot consume milestone");
         System.out.println("PASS: "+checks+" core assertions");
     }
 }

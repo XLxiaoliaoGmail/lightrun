@@ -26,6 +26,7 @@ public final class TrackingService extends Service implements LocationListener, 
     private PowerManager.WakeLock wakeLock;
     private long lastCheckpoint, lastFix, lastWakeRenew;
     private boolean foreground;
+    private int queuedKilometer;
     public RunSession session;
     public String error;
     public String gpsStatus="等待 GPS 定位";
@@ -63,6 +64,7 @@ public final class TrackingService extends Service implements LocationListener, 
         if(!locations.isProviderEnabled(LocationManager.GPS_PROVIDER)) { gpsStatus="请开启手机定位"; stopSelf(); return; }
         if(session==null) session=new RunSession(System.currentTimeMillis());
         session.resume(SystemClock.elapsedRealtime()); lastFix=0; gpsStatus="等待 GPS 定位";
+        queuedKilometer=session.announcedKilometer;
         try {
             stepSensor=null;
             if(Build.VERSION.SDK_INT<29||checkSelfPermission(Manifest.permission.ACTIVITY_RECOGNITION)==PackageManager.PERMISSION_GRANTED) {
@@ -119,11 +121,19 @@ public final class TrackingService extends Service implements LocationListener, 
             lastFix=now; gpsStatus="GPS 已定位 · 精度约 "+Math.round(location.getAccuracy())+" 米";
         } else { gpsStatus="GPS 信号较弱，请到开阔处"; }
         if(session.add(location.getLatitude(),location.getLongitude(),location.hasAccuracy()?location.getAccuracy():999,location.getTime(),age)) {
-            int kilometer=session.takeKilometerMilestone();
-            if(kilometer>0) {
-                checkpoint();
-                if(settings.getBoolean("voice",true))voice.speak(VoiceCoach.kilometer(kilometer,session.distanceM,session.duration(now)));
-            } else if(now-lastCheckpoint>=5000)checkpoint();
+            int kilometer=session.pendingKilometerMilestone();
+            if(kilometer>queuedKilometer) {
+                queuedKilometer=kilometer;
+                if(settings.getBoolean("voice",true)) {
+                    RunSession run=session;
+                    voice.announce(kilometer,VoiceCoach.kilometer(kilometer,run.distanceM,run.duration(now)),()->{
+                        if(session==run&&run.active&&settings.getBoolean("voice",true)) {
+                            run.completeKilometerMilestone(kilometer);checkpoint();
+                        }
+                    });
+                } else session.completeKilometerMilestone(kilometer); // Disabled milestones are not replayed later.
+            }
+            if(now-lastCheckpoint>=5000)checkpoint();
         }
     }
     @Override public void onSensorChanged(SensorEvent event) {
@@ -137,7 +147,7 @@ public final class TrackingService extends Service implements LocationListener, 
         session.steps+=delta;
     }
     @Override public void onAccuracyChanged(Sensor sensor,int accuracy){}
-    public String voiceStatus(){return voice.status;}
+    public String voiceStatus(){String recent=voice.diagnostic();return voice.status+(recent.isEmpty()?"":"\n"+recent);}
     public void previewVoice(){voice.speak("轻跑语音播报。已跑一公里，用时六分钟，平均配速六分钟每公里。");}
     public void stopVoice(){voice.stop();}
     public void resetVoice(){voice.close();voice=new VoiceCoach(this);if(settings.getBoolean("voice",true))voice.prepare();}

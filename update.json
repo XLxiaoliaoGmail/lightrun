@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "applicationId": "cn.lightrun.app",
-  "versionCode": 6,
-  "versionName": "1.2.1",
-  "notes": "本版本仅递增版本号，用于测试应用内检查、下载和覆盖更新，功能与 v1.2.0 一致。请直接覆盖安装，不要卸载。",
-  "sha256": "65722ac23ad17dd5bd7b0597f63c696ca97b5e822de42fc5bd2e500b8e6b3045",
-  "giteeUrl": "https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.2.1",
-  "githubUrl": "https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.2.1"
+  "versionCode": 7,
+  "versionName": "1.2.2",
+  "notes": "改进整公里语音：由应用前台服务播放，播放完成才记录成功，短暂失败有限重试。设置中可查看最近播报结果。请直接覆盖安装，不要卸载。",
+  "sha256": "77f690f2d424d884df1745dc91fcf9e891e9178238a783507c948b4bfafd7cbb",
+  "giteeUrl": "https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.2.2",
+  "githubUrl": "https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.2.2"
 }

@@ -32,10 +32,18 @@ public final class RunSession {
     public long duration(long now) { return accumulatedMs + (active ? Math.max(0, now - activeSince) : 0); }
     public void pause(long now) { accumulatedMs = duration(now); active = false; newSegment = true; }
     public int takeKilometerMilestone() {
+        int kilometer=pendingKilometerMilestone();
+        if(kilometer>0)announcedKilometer=kilometer;
+        return kilometer;
+    }
+    public int pendingKilometerMilestone() {
         if(!active||!Double.isFinite(distanceM)||distanceM<0)return 0;
         int kilometer=(int)(distanceM/1000);
         if(kilometer<=announcedKilometer)return 0;
-        announcedKilometer=kilometer;return kilometer;
+        return kilometer;
+    }
+    public void completeKilometerMilestone(int kilometer) {
+        if(active&&kilometer>announcedKilometer&&kilometer<=distanceM/1000)announcedKilometer=kilometer;
     }
     public boolean add(double lat, double lon, float accuracy, long wallTime, long fixAgeMs) {
         if (!active || !Double.isFinite(lat) || !Double.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180

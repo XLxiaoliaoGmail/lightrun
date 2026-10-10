@@ -7,6 +7,7 @@ import java.util.*;
 /** Test APK only: records synthesis requests and returns a short PCM tone, not spoken Chinese. */
 public final class TestSpeechService extends TextToSpeechService {
     private boolean queried;
+    private static int failureCount;
     private String mode(){return android.provider.Settings.Global.getString(getContentResolver(),"lightrun_test_tts_mode");}
     protected int onIsLanguageAvailable(String language,String country,String variant){queried=true;return TextToSpeech.LANG_COUNTRY_AVAILABLE;}
     protected int onLoadLanguage(String language,String country,String variant){return TextToSpeech.LANG_COUNTRY_AVAILABLE;}
@@ -34,6 +35,11 @@ public final class TestSpeechService extends TextToSpeechService {
         sendBroadcast(new android.content.Intent("cn.lightrun.TEST_SYNTHESIZE").setPackage("cn.lightrun.app")
                 .putExtra("voice",request.getVoiceName()).putExtra("text",request.getCharSequenceText().toString())
                 .putExtra("embedded",request.getParams().getBoolean("embeddedTts",false)));
+        String mode=mode();
+        if("always-fail".equals(mode)||("fail-once".equals(mode)&&failureCount++==0)){
+            callback.error(TextToSpeech.ERROR_SYNTHESIS);callback.done();return;
+        }
+        if("slow".equals(mode))try{Thread.sleep(700);}catch(InterruptedException ignored){Thread.currentThread().interrupt();}
         callback.start(16000,AudioFormat.ENCODING_PCM_16BIT,1);
         byte[] buffer=new byte[3200];
         for(int i=0;i<1600;i++){short value=(short)(Math.sin(i*2*Math.PI*440/16000)*1500);buffer[2*i]=(byte)value;buffer[2*i+1]=(byte)(value>>8);}

@@ -70,6 +70,7 @@ public final class RunInstrumentation extends Instrumentation {
         shell("input keyevent 223");fix(31.00015,121,5);
         check(service.session.points.size()>count,"GPS continues with screen off");
         shell("input keyevent 224");shell("wm dismiss-keyguard");
+        backgroundSpeechTests(context);
         runOnMainSync(()->service.pause());
         service.session.steps=127;service.session.stepsRecorded=true;service.session.announcedKilometer=3;
         new RunStore(context).checkpoint(service.session,SystemClock.elapsedRealtime());
@@ -111,6 +112,75 @@ public final class RunInstrumentation extends Instrumentation {
         return new org.json.JSONObject().put("schema",1).put("applicationId","cn.lightrun.app").put("versionCode",code).put("versionName",name)
                 .put("notes","测试更新").put("sha256",sha).put("giteeUrl","https://gitee.com/XLxiaoliao/lightrun/releases/tag/v"+name)
                 .put("githubUrl","https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v"+name).toString();
+    }
+    private void backgroundSpeechTests(Context context) throws Exception {
+        double realDistance=service.session.distanceM;
+        int realPoints=service.session.points.size();
+        String original=android.provider.Settings.Secure.getString(context.getContentResolver(),"tts_default_synth");
+        String originalLocale=android.provider.Settings.Secure.getString(context.getContentResolver(),"tts_default_locale");
+        shell("settings put secure tts_default_synth cn.lightrun.app.test");
+        shell("settings put secure tts_default_locale cn.lightrun.app.test:zh_CN");
+        java.util.concurrent.atomic.AtomicInteger requests=new java.util.concurrent.atomic.AtomicInteger();
+        BroadcastReceiver receiver=new BroadcastReceiver(){public void onReceive(Context c,Intent i){requests.incrementAndGet();}};
+        if(Build.VERSION.SDK_INT>=33)context.registerReceiver(receiver,new IntentFilter("cn.lightrun.TEST_SYNTHESIZE"),Context.RECEIVER_EXPORTED);
+        else context.registerReceiver(receiver,new IntentFilter("cn.lightrun.TEST_SYNTHESIZE"));
+        try {
+            UpdateChecker.preferences(context).edit().putBoolean("voice",true).apply();
+            runOnMainSync(()->{service.resetVoice();service.voiceSettingsChanged(true);});
+            shell("settings put global lightrun_test_tts_mode slow");
+            shell("input keyevent 223");
+            check(!((PowerManager)context.getSystemService(Context.POWER_SERVICE)).isInteractive(),"voice milestone test runs with screen off");
+            runOnMainSync(()->{service.session.distanceM=999;service.session.announcedKilometer=0;});
+            fix(31.00020,121,5);
+            await(()->service.session.announcedKilometer==1,15000,"screen-off kilometer completes app-owned playback");
+            check(requests.get()==1,"one synthesis for one screen-off kilometer");
+            check(service.voiceStatus().contains("1 公里 · 播放完成"),"persistent playback result available after screen-off");
+            fix(31.00025,121,5);check(requests.get()==1,"GPS updates do not repeat completed kilometer");
+            shell("settings put global lightrun_test_tts_mode fail-once");
+            runOnMainSync(()->service.session.distanceM=1999);
+            fix(31.00030,121,5);
+            check(service.session.announcedKilometer==1,"synthesis failure must not consume kilometer");
+            await(()->service.session.announcedKilometer==2,18000,"failed kilometer retries successfully while screen off");
+            check(requests.get()==3,"one failed attempt and one successful retry");
+            shell("settings put global lightrun_test_tts_mode always-fail");
+            runOnMainSync(()->service.session.distanceM=2999);
+            fix(31.00035,121,5);
+            await(()->service.voiceStatus().contains("本次未播完"),18000,"permanent engine failure has explicit result");
+            check(service.session.announcedKilometer==2,"permanent failure is not reported as played");
+            check(requests.get()==6,"retry bounded to three attempts");
+            fix(31.00040,121,5);check(requests.get()==6,"new GPS fixes cannot create unlimited failed retries");
+            shell("settings put global lightrun_test_tts_mode slow");
+            runOnMainSync(()->service.session.distanceM=3999);
+            // Inject a valid GPS callback without waiting, then pause before synthesis finishes.
+            runOnMainSync(()->{
+                Location p=new Location(LocationManager.GPS_PROVIDER);p.setLatitude(31.00045);p.setLongitude(121);p.setAccuracy(5);
+                p.setTime(System.currentTimeMillis());p.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());service.onLocationChanged(p);service.pause();
+            });
+            Thread.sleep(1500);check(service.session.announcedKilometer==2,"pause cancels pending playback and completion");
+            check(service.voiceStatus().contains("已停止"),"pause records cancelled speech");
+            File[] cache=context.getCacheDir().listFiles((dir,name)->name.startsWith("lightrun-voice-"));
+            check(cache!=null&&cache.length==0,"completed/failed/cancelled speech files are removed");
+        } finally {
+            context.unregisterReceiver(receiver);shell("input keyevent 224");shell("wm dismiss-keyguard");
+            UpdateChecker.preferences(context).edit().putBoolean("voice",false).apply();
+            runOnMainSync(()->{
+                // Undo injected kilometer distances before the existing persistence/GPS tests.
+                double added=0;
+                for(int i=realPoints;i<service.session.points.size();i++) {
+                    RunSession.Point a=service.session.points.get(i-1),b=service.session.points.get(i);
+                    if(a.segment==b.segment)added+=RunSession.meters(a.lat,a.lon,b.lat,b.lon);
+                }
+                service.session.distanceM=realDistance+added;service.resetVoice();
+            });
+            shell("settings delete global lightrun_test_tts_mode");
+            shell(original==null?"settings delete secure tts_default_synth":"settings put secure tts_default_synth "+original);
+            shell(originalLocale==null?"settings delete secure tts_default_locale":"settings put secure tts_default_locale "+originalLocale);
+        }
+    }
+    private void await(java.util.function.BooleanSupplier condition,long limit,String message) throws Exception {
+        long deadline=SystemClock.elapsedRealtime()+limit;
+        while(!condition.getAsBoolean()&&SystemClock.elapsedRealtime()<deadline){Thread.sleep(100);waitForIdleSync();}
+        check(condition.getAsBoolean(),message);
     }
     private void speechTests() throws Exception {
         String original=android.provider.Settings.Secure.getString(getTargetContext().getContentResolver(),"tts_default_synth");

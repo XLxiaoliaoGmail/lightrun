@@ -261,7 +261,7 @@ public final class MainActivity extends Activity {
         });
         gap(12);download=button("查看新版",false);content.addView(download);download.setOnClickListener(v->{UpdateInfo info=UpdateChecker.cached(this);if(info!=null)showUpdate(info);});
         gap(12);Button transfer=button("查看下载进度",false);content.addView(transfer);transfer.setVisibility(UpdateDownload.info==null?View.GONE:View.VISIBLE);transfer.setOnClickListener(v->showDownload());
-        gap(20);content.addView(text("当前版本 1.2.1 · Android 8.0 及以上",13,MUTED,false));
+        gap(20);content.addView(text("当前版本 1.2.2 · Android 8.0 及以上",13,MUTED,false));
         gap(12);Button permission=button("身体活动权限设置",false);content.addView(permission);permission.setOnClickListener(v->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));refresh();
     }
     private void showUpdate(UpdateInfo info) {

@@ -25,7 +25,7 @@
 - 开跑、暂停、继续、结束保存
 - GPS 轨迹、运动时长、距离和平均配速
 - 本次跑步步数，暂停期间不累计；没有计步传感器或未授权时仍可记录轨迹
-- 整公里中文语音播报，沿用系统中文音色，可关闭和试听
+- 整公里中文语音播报，沿用系统中文音色，由前台服务播放；失败有限重试，设置中可查看最近结果
 - 默认自动检查更新，每 24 小时最多自动尝试一次，可关闭或手动检查
 - 应用内下载更新，显示真实进度，可取消或重试；校验安装包后由系统确认安装
 - 首页固定为一屏，角落齿轮进入设置，适配竖屏与横屏
@@ -38,7 +38,7 @@
 
 ## 安装
 
-最低 Android 8.0（API 26）。下载 `lightrun-1.2.1.apk`：[Gitee 发布页](https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.2.1) · [GitHub 发布页](https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.2.1) · [仓库中的发布包](releases/v1.2.1/lightrun-1.2.1.apk)。
+最低 Android 8.0（API 26）。下载 `lightrun-1.2.2.apk`：[Gitee 发布页](https://gitee.com/XLxiaoliao/lightrun/releases/tag/v1.2.2) · [GitHub 发布页](https://github.com/XLxiaoliaoGmail/lightrun/releases/tag/v1.2.2) · [仓库中的发布包](releases/v1.2.2/lightrun-1.2.2.apk)。
 
 从官方 v1.0.0 升级时直接覆盖安装，不要先卸载。旧运动记录会保留，旧记录的步数显示为“未记录”。
 
